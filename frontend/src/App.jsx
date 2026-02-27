@@ -1,1109 +1,1219 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { create } from "zustand";
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, AreaChart, Area, ReferenceLine
-} from "recharts";
-import {
-  LayoutDashboard, TrendingUp, Brain, Gamepad2, MessageSquare,
-  X, Send, ChevronDown, ChevronUp, Bell, Settings, Search,
-  ArrowUpRight, ArrowDownRight, Zap, Shield, Target, Award,
-  Activity, BarChart2, PieChart, Layers, AlertTriangle, CheckCircle,
-  XCircle, Plus, Minus, RefreshCw, Wifi, WifiOff, Star, Trophy,
-  Flame, BookOpen, TrendingDown, Eye, EyeOff, ChevronRight,
-  Clock, DollarSign, Percent, Hash, Filter, Download, MoreHorizontal
-} from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 
-// ─── ZUSTAND STORE ────────────────────────────────────────────────────────────
-const useStore = create((set, get) => ({
-  balance: 124850.75,
-  pnl: 3247.50,
-  pnlPercent: 2.67,
-  xp: 7840,
-  xpMax: 10000,
-  rank: "Strategist",
-  streak: 12,
-  longestStreak: 19,
-  positions: [],
-  trades: [],
-  biasHistory: [],
-  apiConnected: true,
-  activeModule: "dashboard",
-  chatOpen: false,
-  chatMessages: [
-    { role: "assistant", content: "Welcome to EduFin Intelligence. I'm your AI trading coach. How can I help you today?", ts: Date.now() - 60000 }
-  ],
-  toasts: [],
-  confidenceSlider: 65,
-  openPositions: [
-    { id: 1, symbol: "NIFTY50", type: "LONG", entry: 22145, qty: 50, pnl: 1250, status: "open" },
-    { id: 2, symbol: "BANKNIFTY", type: "SHORT", entry: 47820, qty: 25, pnl: -380, status: "open" }
-  ],
-  setModule: (m) => set({ activeModule: m }),
-  setChatOpen: (v) => set({ chatOpen: v }),
-  addMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, { ...msg, ts: Date.now() }] })),
-  addToast: (toast) => {
-    const id = Date.now();
-    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter(t => t.id !== id) })), 4000);
+const API_BASE = import.meta.env.VITE_API_URL;
+const api = {
+  post: async (path, body) => {
+    const r = await fetch(`${API_BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const json = await r.json();
+    return json.data ?? json;
   },
-  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter(t => t.id !== id) })),
-  setConfidence: (v) => set({ confidenceSlider: v }),
-  addTrade: (trade) => {
-    const trades = [trade, ...get().trades].slice(0, 50);
-    const biasHistory = [...get().biasHistory];
-    const biases = detectBiases(trade, get());
-    if (biases.length) biasHistory.unshift({ ...trade, biases, ts: Date.now() });
-    set({ trades, biasHistory: biasHistory.slice(0, 20) });
+  get: async (path) => {
+    const r = await fetch(`${API_BASE}${path}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const json = await r.json();
+    return json.data ?? json;
   },
-  updateBalance: (delta) => set((s) => ({ balance: s.balance + delta, pnl: s.pnl + delta })),
-  addXP: (pts) => set((s) => {
-    let xp = s.xp + pts;
-    if (xp >= s.xpMax) xp = s.xpMax;
-    return { xp };
-  }),
-}));
+};
 
-function detectBiases(trade, state) {
-  const biases = [];
-  if (trade.confidence > 85) biases.push("Overconfidence");
-  if (trade.candlesHeld < 3) biases.push("Early Exit");
-  const recent = state.trades.slice(0, 3);
-  if (recent.length >= 2 && recent[0]?.pnl < 0 && recent[1]?.pnl < 0) biases.push("Revenge Trading");
-  if (recent.length >= 3 && recent.every(t => t.direction === trade.direction)) biases.push("Herding");
-  if (recent[0]?.pnl > 0 && trade.qty > (recent[0]?.qty || 0)) biases.push("FOMO");
-  return biases;
-}
+// ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
 
-// ─── OHLC DATA GENERATOR ─────────────────────────────────────────────────────
-function generateOHLC(count = 120, base = 22000, volatility = 80) {
-  const data = [];
-  let close = base;
-  const now = Math.floor(Date.now() / 1000);
-  for (let i = count; i >= 0; i--) {
-    const open = close;
-    const change = (Math.random() - 0.48) * volatility;
-    close = Math.max(open + change, 1000);
-    const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-    const low = Math.min(open, close) - Math.random() * volatility * 0.5;
-    const volume = Math.floor(50000 + Math.random() * 200000);
-    data.push({ time: now - i * 300, open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2), volume });
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #060A12;
+    --bg2: #0A0F1C;
+    --surface: rgba(255,255,255,0.032);
+    --surface2: rgba(255,255,255,0.055);
+    --surface-hover: rgba(255,255,255,0.062);
+    --border: rgba(255,255,255,0.07);
+    --border-bright: rgba(255,255,255,0.14);
+    --text: #E4EAF4;
+    --text2: #9AAAC2;
+    --muted: #5A6A88;
+    --accent: #3B82F6;
+    --accent2: #8B5CF6;
+    --green: #10B981;
+    --red: #EF4444;
+    --yellow: #F59E0B;
+    --cyan: #06B6D4;
+    --pink: #EC4899;
+    --font-display: 'Syne', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --r: 14px;
+    --r-sm: 9px;
+    --r-lg: 20px;
+    --sidebar-w: 230px;
+    --topbar-h: 58px;
+    --shadow: 0 8px 40px rgba(0,0,0,0.5);
+    --shadow-sm: 0 4px 20px rgba(0,0,0,0.35);
+    --glow-b: 0 0 40px rgba(59,130,246,0.12);
+    --glow-p: 0 0 40px rgba(139,92,246,0.12);
+    --glow-g: 0 0 40px rgba(16,185,129,0.1);
+    --transition: 0.2s cubic-bezier(.4,0,.2,1);
   }
-  return data;
-}
 
-// ─── WEEKLY PNL DATA ──────────────────────────────────────────────────────────
-const weeklyPnl = [
-  { day: "Mon", pnl: 1240, ai: 1580 },
-  { day: "Tue", pnl: -320, ai: 240 },
-  { day: "Wed", pnl: 2100, ai: 1920 },
-  { day: "Thu", pnl: 880, ai: 1100 },
-  { day: "Fri", pnl: 3247, ai: 2800 },
-  { day: "Sat", pnl: 620, ai: 900 },
-  { day: "Sun", pnl: 0, ai: 0 },
-];
-
-const biasData = [
-  { week: "W1", overconf: 3, fomo: 1, herd: 2 },
-  { week: "W2", overconf: 2, fomo: 3, herd: 1 },
-  { week: "W3", overconf: 1, fomo: 2, herd: 4 },
-  { week: "W4", overconf: 4, fomo: 1, herd: 2 },
-];
-
-const monthlyPerf = [
-  { month: "Sep", return: 4.2 }, { month: "Oct", return: -1.8 },
-  { month: "Nov", return: 6.7 }, { month: "Dec", return: 2.1 },
-  { month: "Jan", return: 8.4 }, { month: "Feb", return: 2.67 },
-];
-
-// ─── STREAK HEATMAP DATA ──────────────────────────────────────────────────────
-function generateStreakData() {
-  const data = [];
-  for (let w = 0; w < 52; w++) {
-    const week = [];
-    for (let d = 0; d < 7; d++) {
-      week.push(Math.random() > 0.3 ? Math.floor(Math.random() * 5) : 0);
-    }
-    data.push(week);
+  html { font-size: 16px; }
+  html, body, #root {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  return data;
-}
-const streakData = generateStreakData();
 
-// ─── RANK TIERS ───────────────────────────────────────────────────────────────
-const RANKS = [
-  { name: "Novice", min: 0, max: 1000, color: "#6B7280" },
-  { name: "Analyst", min: 1000, max: 3000, color: "#3B82F6" },
-  { name: "Trader", min: 3000, max: 6000, color: "#8B5CF6" },
-  { name: "Strategist", min: 6000, max: 10000, color: "#F59E0B" },
-  { name: "Institutional Mind", min: 10000, max: 20000, color: "#EC4899" },
-];
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
 
-// ─── INDICATORS DATA ──────────────────────────────────────────────────────────
-const indicators = [
-  {
-    name: "RSI (14)", value: "67.4", signal: "BULLISH", bias: "Neutral", confidence: 72,
-    risk: "Approaching overbought territory. Watch for divergence near 70-75.",
-    interpretation: "RSI is in bullish momentum zone. The current reading suggests sustained buying pressure without extreme conditions."
-  },
-  {
-    name: "MACD (12,26,9)", value: "+2.4 / +0.8", signal: "BULLISH", bias: "Slight Bullish", confidence: 68,
-    risk: "Histogram expansion moderate. Signal line crossing could indicate momentum shift.",
-    interpretation: "MACD line above signal line with positive histogram. Trend momentum is upward but watch for deceleration."
-  },
-  {
-    name: "Bollinger Bands", value: "22,148 (Mid)", signal: "NEUTRAL", bias: "Mean Reversion", confidence: 55,
-    risk: "Price near middle band. No clear directional edge. Breakout watch required.",
-    interpretation: "Price consolidating near 20-period MA. Band width narrowing suggests volatility compression, breakout imminent."
-  },
-  {
-    name: "Volume Profile", value: "2.1M (1.4x avg)", signal: "BULLISH", bias: "Institutional", confidence: 81,
-    risk: "High volume on up-moves is bullish confirmation. Sustaining above VPOC critical.",
-    interpretation: "Above-average volume on upward price action suggests institutional accumulation. Value area high at 22,320."
-  },
-];
+  /* ── LAYOUT ── */
+  .app {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    grid-template-rows: var(--topbar-h) 1fr;
+    grid-template-areas: "sidebar topbar" "sidebar content";
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app.sidebar-collapsed {
+    grid-template-columns: 58px 1fr;
+  }
 
-// ─── CUSTOM TOOLTIP ───────────────────────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
+  /* ── SIDEBAR ── */
+  .sidebar {
+    grid-area: sidebar;
+    background: rgba(6,10,18,0.97);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 20;
+    transition: width var(--transition), grid-template-columns var(--transition);
+  }
+
+  .sidebar-logo {
+    height: var(--topbar-h);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .logo-mark {
+    width: 30px; height: 30px; flex-shrink: 0;
+    background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+    border-radius: 8px;
+    display: grid; place-items: center;
+    font-family: var(--font-display);
+    font-weight: 800; font-size: 12px;
+    color: #fff;
+    box-shadow: 0 0 16px rgba(59,130,246,0.35);
+  }
+  .logo-text {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 14px;
+    background: linear-gradient(90deg, #fff 0%, #8B9EC4 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    white-space: nowrap; overflow: hidden;
+    opacity: 1; transition: opacity var(--transition);
+  }
+  .sidebar-collapsed .logo-text { opacity: 0; width: 0; }
+
+  .nav-section { padding: 12px 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+
+  .nav-group-label {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.11em;
+    color: var(--muted); text-transform: uppercase;
+    padding: 10px 10px 6px;
+    white-space: nowrap; overflow: hidden;
+    transition: opacity var(--transition);
+  }
+  .sidebar-collapsed .nav-group-label { opacity: 0; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    cursor: pointer; transition: all var(--transition);
+    border: 1px solid transparent;
+    font-size: 13px; font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap; overflow: hidden;
+    position: relative;
+    text-decoration: none;
+  }
+  .nav-item:hover { color: var(--text); background: var(--surface-hover); }
+  .nav-item.active {
+    color: #E0EAFF;
+    background: linear-gradient(100deg, rgba(59,130,246,0.18) 0%, rgba(139,92,246,0.09) 100%);
+    border-color: rgba(59,130,246,0.22);
+  }
+  .nav-item.active::before {
+    content: '';
+    position: absolute; left: 0; top: 20%; bottom: 20%;
+    width: 2.5px;
+    background: linear-gradient(180deg, #3B82F6, #8B5CF6);
+    border-radius: 0 2px 2px 0;
+  }
+  .nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  .nav-item span.nav-label-text { transition: opacity var(--transition); }
+  .sidebar-collapsed .nav-item span.nav-label-text { opacity: 0; width: 0; overflow: hidden; }
+
+  .sidebar-footer {
+    padding: 10px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar-footer .nav-item { color: var(--muted); }
+
+  /* ── TOPBAR ── */
+  .topbar {
+    grid-area: topbar;
+    height: var(--topbar-h);
+    background: rgba(6,10,18,0.92);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 0 20px 0 24px;
+    backdrop-filter: blur(20px);
+    position: sticky; top: 0; z-index: 10;
+    gap: 12px;
+  }
+  .topbar-breadcrumb {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 15px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .topbar-breadcrumb .crumb-sep { color: var(--muted); font-weight: 300; }
+  .topbar-breadcrumb .crumb-module { color: var(--text2); font-size: 13px; font-weight: 500; font-family: var(--font-body); }
+
+  .topbar-right {
+    display: flex; align-items: center; gap: 8px;
+    flex-shrink: 0;
+  }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 99px;
+    background: rgba(16,185,129,0.1);
+    border: 1px solid rgba(16,185,129,0.2);
+    font-size: 11.5px; font-weight: 600;
+    color: #34D399;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #10B981;
+    box-shadow: 0 0 6px #10B981;
+    animation: pulse-dot 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.5;transform:scale(0.8);} }
+
+  /* ── CONTENT ── */
+  .content {
+    grid-area: content;
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 28px;
+  }
+
+  /* ── PAGE HEADER ── */
+  .page-header { margin-bottom: 28px; }
+  .page-title {
+    font-family: var(--font-display);
+    font-weight: 800; font-size: 24px;
+    background: linear-gradient(90deg, #fff 0%, #8B9EC4 80%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    line-height: 1.2; margin-bottom: 5px;
+  }
+  .page-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px;
+    backdrop-filter: blur(12px);
+    transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+    position: relative; overflow: hidden;
+  }
+  .card:hover {
+    border-color: var(--border-bright);
+    box-shadow: var(--shadow-sm);
+  }
+  .card.glow-b { box-shadow: var(--glow-b); }
+  .card.glow-p { box-shadow: var(--glow-p); }
+  .card.glow-g { box-shadow: var(--glow-g); }
+
+  .card-hd {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 13px;
+    color: #C4CFDE;
+    margin-bottom: 18px;
+  }
+  .card-hd-icon {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+
+  /* ── GRID ── */
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .g-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .gap-sm { gap: 10px; }
+  .col-span-2 { grid-column: span 2; }
+
+  /* ── FORM ELEMENTS ── */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field + .field { margin-top: 12px; }
+  .field-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.09em;
+  }
+
+  .input, .select {
+    width: 100%;
+    padding: 9px 13px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--font-body); font-size: 13px;
+    outline: none;
+    transition: all var(--transition);
+    -webkit-appearance: none; appearance: none;
+  }
+  .input:focus, .select:focus {
+    border-color: rgba(59,130,246,0.5);
+    background: rgba(59,130,246,0.05);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.09);
+  }
+  .input::placeholder { color: var(--muted); }
+  .select {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235A6A88' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    padding-right: 32px;
+  }
+  .select option { background: #0D1425; }
+
+  .inline-g { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* ── SLIDER ── */
+  .slider-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .slider-wrap + .slider-wrap { margin-top: 12px; }
+  .slider-top { display: flex; align-items: center; justify-content: space-between; }
+  .slider-val {
+    font-size: 12px; font-weight: 700;
+    color: #60A5FA;
+    font-family: var(--font-display);
+    background: rgba(59,130,246,0.12);
+    padding: 2px 7px; border-radius: 5px;
+    border: 1px solid rgba(59,130,246,0.2);
+  }
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 3px;
+    background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+    cursor: pointer; box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 4px rgba(59,130,246,0.3);
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 9px 18px;
+    border-radius: var(--r-sm);
+    font-family: var(--font-body); font-weight: 600; font-size: 13px;
+    cursor: pointer; border: none;
+    transition: all var(--transition);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #3B82F6, #6366F1);
+    color: #fff;
+    box-shadow: 0 3px 14px rgba(59,130,246,0.28);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 22px rgba(59,130,246,0.42);
+  }
+  .btn-primary:active:not(:disabled) { transform: translateY(0); }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text2);
+  }
+  .btn-ghost:hover { background: var(--surface-hover); border-color: var(--border-bright); color: var(--text); }
+  .btn-full { width: 100%; }
+  .btn-group { display: flex; gap: 6px; }
+
+  /* ── BADGES ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 99px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    border: 1px solid;
+  }
+  .badge-blue   { background: rgba(59,130,246,0.13); color: #60A5FA; border-color: rgba(59,130,246,0.22); }
+  .badge-green  { background: rgba(16,185,129,0.13); color: #34D399; border-color: rgba(16,185,129,0.22); }
+  .badge-red    { background: rgba(239,68,68,0.13); color: #F87171; border-color: rgba(239,68,68,0.22); }
+  .badge-yellow { background: rgba(245,158,11,0.13); color: #FCD34D; border-color: rgba(245,158,11,0.22); }
+  .badge-purple { background: rgba(139,92,246,0.13); color: #A78BFA; border-color: rgba(139,92,246,0.22); }
+  .badge-cyan   { background: rgba(6,182,212,0.13); color: #22D3EE; border-color: rgba(6,182,212,0.22); }
+  .badge-pink   { background: rgba(236,72,153,0.13); color: #F472B6; border-color: rgba(236,72,153,0.22); }
+  .badge-sm { font-size: 9px; padding: 2px 7px; }
+
+  /* ── RESULT PANEL ── */
+  .result-panel {
+    background: rgba(59,130,246,0.04);
+    border: 1px solid rgba(59,130,246,0.12);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    animation: fadeUp 0.3s ease;
+  }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+  .result-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    gap: 12px;
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-key {
+    font-size: 10.5px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.09em;
+    flex-shrink: 0; padding-top: 1px;
+  }
+  .result-val { font-size: 13px; color: var(--text); text-align: right; line-height: 1.5; }
+
+  .result-block {
+    padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .result-block:last-child { border-bottom: none; }
+
+  /* ── PROGRESS BAR ── */
+  .prog { height: 5px; background: rgba(255,255,255,0.07); border-radius: 99px; overflow: hidden; }
+  .prog.prog-md { height: 7px; }
+  .prog.prog-lg { height: 10px; }
+  .prog-fill { height: 100%; border-radius: 99px; transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .prog-b { background: linear-gradient(90deg, #3B82F6, #6366F1); }
+  .prog-g { background: linear-gradient(90deg, #10B981, #06B6D4); }
+  .prog-p { background: linear-gradient(90deg, #8B5CF6, #EC4899); }
+  .prog-y { background: linear-gradient(90deg, #F59E0B, #EF4444); }
+
+  /* ── XP BAR ── */
+  .xp-track {
+    height: 8px; background: rgba(255,255,255,0.06);
+    border-radius: 99px; overflow: hidden; position: relative;
+  }
+  .xp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899);
+    border-radius: 99px;
+    transition: width 1.3s cubic-bezier(.4,0,.2,1);
+    position: relative;
+  }
+  .xp-fill::after {
+    content: '';
+    position: absolute; right: 0; top: 0; bottom: 0;
+    width: 16px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+    border-radius: 99px;
+  }
+
+  /* ── SPINNER ── */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.12);
+    border-top-color: #3B82F6;
+    border-radius: 50%;
+    animation: spin 0.65s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── TOAST ── */
+  .toast-container {
+    position: fixed; bottom: 20px; right: 20px;
+    z-index: 9999; display: flex; flex-direction: column; gap: 6px;
+    pointer-events: none;
+  }
+  .toast {
+    display: flex; align-items: center; gap: 9px;
+    padding: 11px 16px; border-radius: var(--r-sm);
+    font-size: 13px; font-weight: 500;
+    backdrop-filter: blur(20px);
+    border: 1px solid;
+    animation: slideInRight 0.3s ease, fadeOutToast 0.35s ease 2.65s forwards;
+    max-width: 320px;
+    pointer-events: all;
+    box-shadow: var(--shadow-sm);
+  }
+  .toast-success { background: rgba(16,185,129,0.14); border-color: rgba(16,185,129,0.28); color: #34D399; }
+  .toast-error   { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.28); color: #F87171; }
+  .toast-info    { background: rgba(59,130,246,0.14); border-color: rgba(59,130,246,0.28); color: #60A5FA; }
+  @keyframes slideInRight { from { opacity:0; transform:translateX(16px); } to { opacity:1; transform:translateX(0); } }
+  @keyframes fadeOutToast { to { opacity:0; transform:translateX(10px); } }
+
+  /* ── INFO BANNER ── */
+  .info-banner {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 14px;
+    background: rgba(59,130,246,0.06);
+    border: 1px solid rgba(59,130,246,0.15);
+    border-radius: var(--r-sm);
+    font-size: 12.5px; color: #93C5FD; line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .info-banner svg { flex-shrink: 0; margin-top: 1px; }
+
+  .warn-banner {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 14px;
+    background: rgba(245,158,11,0.07);
+    border: 1px solid rgba(245,158,11,0.18);
+    border-radius: var(--r-sm);
+    font-size: 12px; color: #FCD34D; line-height: 1.6;
+  }
+
+  /* ── QUIZ ── */
+  .quiz-opt {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 13px; border-radius: var(--r-sm);
+    border: 1px solid var(--border); cursor: pointer;
+    transition: all var(--transition); margin-bottom: 7px;
+    font-size: 13px; line-height: 1.4;
+  }
+  .quiz-opt:hover { background: var(--surface-hover); border-color: var(--border-bright); }
+  .quiz-opt.sel   { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.38); color: #93C5FD; }
+  .quiz-opt.ok    { background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.38); }
+  .quiz-opt.wrong { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.38); }
+  .opt-key {
+    width: 24px; height: 24px; border-radius: 6px;
+    background: rgba(255,255,255,0.07); display: grid;
+    place-items: center; font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ── METRIC ── */
+  .metric-val { font-family: var(--font-display); font-size: 30px; font-weight: 800; line-height: 1; }
+  .metric-lbl { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* ── STAT BIG ── */
+  .stat-big { font-family: var(--font-display); font-size: 46px; font-weight: 800; line-height: 1; }
+  .stat-lbl { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 5px; }
+
+  /* ── DIVIDER ── */
+  .div { height: 1px; background: var(--border); margin: 14px 0; }
+
+  /* ── CONTRIB ── */
+  .contrib { margin-bottom: 13px; }
+  .contrib-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .contrib-name { font-size: 11.5px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
+  .contrib-score { font-size: 12px; font-weight: 700; font-family: var(--font-display); }
+
+  /* ── BADGE GRID ── */
+  .badge-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .badge-pill {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 600;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    transition: all var(--transition); cursor: default;
+  }
+  .badge-pill:hover { background: rgba(255,255,255,0.09); transform: translateY(-1px); }
+
+  /* ── DIRECTION BTNS ── */
+  .dir-btns { display: flex; gap: 6px; }
+  .dir-btn {
+    flex: 1; padding: 8px 6px;
+    border-radius: var(--r-sm);
+    font-size: 12px; font-weight: 700;
+    cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    transition: all var(--transition);
+  }
+  .dir-btn:hover { color: var(--text); border-color: var(--border-bright); }
+  .dir-btn.active-buy   { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.35); color: #34D399; }
+  .dir-btn.active-sell  { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.35); color: #F87171; }
+  .dir-btn.active-hold  { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.35); color: #FCD34D; }
+
+  /* ── TABS ── */
+  .tabs { display: flex; gap: 3px; background: rgba(255,255,255,0.04); padding: 4px; border-radius: var(--r-sm); margin-bottom: 16px; }
+  .tab { flex: 1; padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; text-align: center; transition: all var(--transition); color: var(--muted); border: 1px solid transparent; }
+  .tab.active { background: rgba(59,130,246,0.18); color: #60A5FA; border-color: rgba(59,130,246,0.2); }
+  .tab:hover:not(.active) { color: var(--text2); background: var(--surface-hover); }
+
+  /* ── QUIZ NAV DOTS ── */
+  .q-nav { display: flex; gap: 5px; flex-wrap: wrap; }
+  .q-dot {
+    width: 34px; height: 34px; border-radius: 8px;
+    display: grid; place-items: center;
+    cursor: pointer; font-size: 12.5px; font-weight: 700;
+    font-family: var(--font-display);
+    transition: all var(--transition);
+    border: 1px solid transparent;
+  }
+
+  /* ── SCORE CIRCLE ── */
+  .score-circle {
+    width: 110px; height: 110px; border-radius: 50%;
+    background: conic-gradient(from 180deg, #3B82F6, #8B5CF6, #3B82F6);
+    display: grid; place-items: center;
+    margin: 0 auto 10px;
+    box-shadow: 0 0 40px rgba(59,130,246,0.2);
+    position: relative;
+  }
+  .score-circle::before {
+    content: '';
+    position: absolute; inset: 6px; border-radius: 50%;
+    background: var(--bg2);
+  }
+  .score-inner { position: relative; z-index: 1; text-align: center; }
+  .score-num { font-family: var(--font-display); font-size: 26px; font-weight: 800; color: #fff; }
+  .score-denom { font-size: 10px; color: var(--muted); }
+
+  /* ── ANSWER REVIEW ── */
+  .ans-card {
+    padding: 10px 12px; border-radius: var(--r-sm);
+    margin-bottom: 8px;
+  }
+  .ans-card.ans-ok   { background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.18); }
+  .ans-card.ans-bad  { background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.18); }
+
+  /* ── METRIC MINI ── */
+  .metric-mini {
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  /* ── ANIMATION ── */
+  .fade-in { animation: fadeIn 0.35s ease both; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+  /* ── EMPTY STATE ── */
+  .empty {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 40px 20px; gap: 10px;
+    color: var(--muted);
+  }
+  .empty p { font-size: 13px; text-align: center; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 1024px) {
+    :root { --sidebar-w: 58px; }
+    .logo-text, .nav-group-label { opacity: 0; width: 0; overflow: hidden; }
+    .nav-item span.nav-label-text { opacity: 0; width: 0; overflow: hidden; }
+    .sidebar-footer .nav-item span.nav-label-text { opacity: 0; width: 0; overflow: hidden; }
+    .topbar-breadcrumb .crumb-module { display: none; }
+    .g3 { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 768px) {
+    :root { --sidebar-w: 0px; }
+    .app { grid-template-columns: 0 1fr; }
+    .sidebar { display: none; }
+    .content { padding: 16px; }
+    .g2, .g3, .g-auto { grid-template-columns: 1fr; }
+    .topbar { padding: 0 16px; }
+    .col-span-2 { grid-column: span 1; }
+  }
+  @media (max-width: 480px) {
+    .content { padding: 12px; }
+    .page-title { font-size: 20px; }
+    .metric-val { font-size: 24px; }
+    .stat-big { font-size: 38px; }
+  }
+`;
+
+// ─── SVG ICONS ────────────────────────────────────────────────────────────────
+const Icon = ({ name, size = 16, color = "currentColor", style }) => {
+  const p = { stroke: color, strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", fill: "none" };
+  const icons = {
+    chart:    <><path d="M3 3v18h18" {...p}/><path d="M7 16l4-5 4 4 5-6" {...p}/></>,
+    brain:    <><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" {...p}/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" {...p}/></>,
+    target:   <><circle cx="12" cy="12" r="10" {...p}/><circle cx="12" cy="12" r="6" {...p}/><circle cx="12" cy="12" r="2" {...p}/></>,
+    trending: <><path d="M22 7l-9 9-4-4-6 6" {...p}/><path d="M17 7h5v5" {...p}/></>,
+    quiz:     <><path d="M9 11l3 3L22 4" {...p}/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" {...p}/></>,
+    flame:    <><path d="M8.5 14.5A4.5 4.5 0 0 0 12 18a4.5 4.5 0 0 0 4.5-4.5c0-1.5-.5-3-1.5-4-1 1.5-2.083 2.5-3.5 2.5-1.5 0-2.5-1-3-3 0 0-1.5 2 0 4.5" {...p}/><path d="M12 2s-5 5-5 10a7 7 0 0014 0c0-5-5-10-5-10" {...p}/></>,
+    zap:      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" {...p}/>,
+    check:    <path d="M20 6L9 17l-5-5" {...p}/>,
+    x:        <path d="M18 6L6 18M6 6l12 12" {...p}/>,
+    info:     <><circle cx="12" cy="12" r="10" {...p}/><path d="M12 16v-4M12 8h.01" {...p}/></>,
+    menu:     <path d="M4 6h16M4 12h16M4 18h16" {...p}/>,
+    award:    <><circle cx="12" cy="8" r="6" {...p}/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11" {...p}/></>,
+    chevron:  <path d="M9 18l6-6-6-6" {...p}/>,
+    collapse: <path d="M15 18l-6-6 6-6" {...p}/>,
+  };
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-xl p-3 text-xs shadow-2xl">
-      <p className="text-gray-400 mb-1">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }} className="font-semibold">
-          {p.name}: {typeof p.value === 'number' && p.value < 100 && p.value > -100 ? p.value.toFixed(1) + '%' : '₹' + p.value?.toLocaleString()}
-        </p>
+    <svg width={size} height={size} viewBox="0 0 24 24" className="nav-icon" style={style}>
+      {icons[name] || null}
+    </svg>
+  );
+};
+
+// ─── TOAST ───────────────────────────────────────────────────────────────────
+let _addToast = null;
+const Toast = () => {
+  const [toasts, setToasts] = useState([]);
+  _addToast = (msg, type = "info") => {
+    const id = Date.now() + Math.random();
+    setToasts(p => [...p, { id, msg, type }]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
+  };
+  return (
+    <div className="toast-container">
+      {toasts.map(t => (
+        <div key={t.id} className={`toast toast-${t.type}`}>
+          <Icon name={t.type === "success" ? "check" : t.type === "error" ? "x" : "info"} size={14} />
+          {t.msg}
+        </div>
       ))}
     </div>
   );
 };
+const toast = (msg, type) => _addToast?.(msg, type);
 
-// ─── SKELETON LOADER ──────────────────────────────────────────────────────────
-const Skeleton = ({ className }) => (
-  <div className={`animate-pulse bg-gradient-to-r from-gray-800 via-gray-700 to-gray-800 rounded-xl ${className}`} />
-);
+// ─── SHARED ───────────────────────────────────────────────────────────────────
+const Spinner = () => <div className="spinner" />;
 
-// ─── GLASS CARD ───────────────────────────────────────────────────────────────
-const GlassCard = ({ children, className = "", glow = false }) => (
-  <div className={`bg-gray-900/80 backdrop-blur-xl border border-gray-800/60 rounded-2xl ${glow ? 'shadow-[0_0_30px_rgba(99,102,241,0.12)]' : 'shadow-lg'} ${className}`}>
+const Fld = ({ label, children }) => (
+  <div className="field">
+    <label className="field-label">{label}</label>
     {children}
   </div>
 );
 
-// ─── BADGE ────────────────────────────────────────────────────────────────────
-const BiasBadge = ({ bias }) => {
-  const colors = {
-    "Overconfidence": "bg-red-500/20 text-red-400 border-red-500/30",
-    "Early Exit": "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    "Revenge Trading": "bg-orange-500/20 text-orange-400 border-orange-500/30",
-    "Herding": "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    "FOMO": "bg-pink-500/20 text-pink-400 border-pink-500/30",
-    "Loss Aversion": "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  };
-  return (
-    <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${colors[bias] || 'bg-gray-700 text-gray-300 border-gray-600'}`}>
-      {bias}
-    </span>
-  );
-};
-
-// ─── TOP NAVBAR ───────────────────────────────────────────────────────────────
-const TopNavbar = () => {
-  const { apiConnected, addToast, balance, pnl, pnlPercent } = useStore();
-  return (
-    <div className="h-14 bg-gray-950/90 backdrop-blur-xl border-b border-gray-800/50 flex items-center px-6 gap-4 sticky top-0 z-40">
-      <div className="flex items-center gap-2 mr-4">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
-          <Zap size={14} className="text-white" />
-        </div>
-        <span className="font-bold text-white text-sm tracking-tight">EduFin<span className="text-blue-400">Intelligence</span></span>
-      </div>
-
-      <div className="flex-1 max-w-xs relative">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-        <input className="w-full bg-gray-800/60 border border-gray-700/50 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800" placeholder="Search instruments, indicators..." />
-      </div>
-
-      <div className="flex-1" />
-
-      <div className="flex items-center gap-1 bg-gray-800/40 rounded-xl px-3 py-1.5 border border-gray-700/50">
-        <span className="text-xs text-gray-400">Portfolio</span>
-        <span className="text-sm font-bold text-white ml-1">₹{balance.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-        <span className={`text-xs ml-1 font-semibold ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-          {pnl >= 0 ? '+' : ''}₹{pnl.toLocaleString()} ({pnlPercent}%)
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-800/40 border border-gray-700/50">
-        <div className={`w-1.5 h-1.5 rounded-full ${apiConnected ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-red-400'} animate-pulse`} />
-        <span className="text-xs text-gray-400">{apiConnected ? 'Connected' : 'Offline'}</span>
-      </div>
-
-      <button onClick={() => addToast({ type: 'info', message: 'No new notifications' })} className="relative p-2 rounded-xl hover:bg-gray-800 transition-colors">
-        <Bell size={15} className="text-gray-400" />
-        <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full" />
-      </button>
-
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center cursor-pointer">
-        <span className="text-xs font-bold text-white">AK</span>
-      </div>
+const Slider = ({ label, name, value, onChange, min = 0, max = 1, step = 0.01 }) => (
+  <div className="slider-wrap">
+    <div className="slider-top">
+      <label className="field-label" style={{ margin: 0 }}>{label}</label>
+      <span className="slider-val">{parseFloat(value).toFixed(2)}</span>
     </div>
-  );
-};
-
-// ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-const Sidebar = () => {
-  const { activeModule, setModule, xp, xpMax, rank } = useStore();
-  const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "indicators", label: "Indicators", icon: BarChart2 },
-    { id: "ai-decision", label: "AI Decision", icon: Brain },
-    { id: "simulation", label: "Simulation", icon: TrendingUp },
-    { id: "gamification", label: "Progress", icon: Trophy },
-  ];
-  const rankInfo = RANKS.find(r => r.name === rank) || RANKS[3];
-  return (
-    <div className="w-[220px] min-h-screen bg-gray-950/90 border-r border-gray-800/50 flex flex-col py-4 backdrop-blur-xl">
-      <nav className="flex-1 px-3 space-y-1">
-        {navItems.map(({ id, label, icon: Icon }) => (
-          <motion.button
-            key={id}
-            onClick={() => setModule(id)}
-            whileTap={{ scale: 0.97 }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-              activeModule === id
-                ? 'bg-gradient-to-r from-blue-600/20 to-violet-600/20 text-white border border-blue-500/20'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
-            }`}
-          >
-            <Icon size={16} className={activeModule === id ? 'text-blue-400' : ''} />
-            {label}
-            {activeModule === id && <div className="ml-auto w-1 h-4 rounded-full bg-gradient-to-b from-blue-400 to-violet-500" />}
-          </motion.button>
-        ))}
-      </nav>
-
-      <div className="px-3 pb-2">
-        <div className="bg-gray-900/80 rounded-2xl p-3 border border-gray-800/50">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${rankInfo.color}20` }}>
-              <Trophy size={13} style={{ color: rankInfo.color }} />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-white">{rank}</p>
-              <p className="text-xs text-gray-500">{xp.toLocaleString()} XP</p>
-            </div>
-          </div>
-          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${(xp / xpMax) * 100}%` }}
-              transition={{ duration: 1, ease: "easeOut" }}
-              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500"
-            />
-          </div>
-          <p className="text-xs text-gray-600 mt-1">{xp.toLocaleString()} / {xpMax.toLocaleString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── TOAST SYSTEM ─────────────────────────────────────────────────────────────
-const ToastSystem = () => {
-  const { toasts, removeToast } = useStore();
-  const icons = { success: CheckCircle, error: XCircle, warning: AlertTriangle, info: Activity };
-  const colors = { success: 'text-emerald-400 border-emerald-500/30', error: 'text-red-400 border-red-500/30', warning: 'text-yellow-400 border-yellow-500/30', info: 'text-blue-400 border-blue-500/30' };
-  return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2">
-      <AnimatePresence>
-        {toasts.map(t => {
-          const Icon = icons[t.type] || Activity;
-          return (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              className={`flex items-center gap-3 bg-gray-900/95 backdrop-blur-xl border rounded-xl px-4 py-3 shadow-2xl text-sm ${colors[t.type] || 'text-gray-300 border-gray-700'}`}
-            >
-              <Icon size={15} />
-              <span className="text-white">{t.message}</span>
-              <button onClick={() => removeToast(t.id)} className="ml-2 opacity-50 hover:opacity-100"><X size={13} /></button>
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-// ─── AI CHATBOT ───────────────────────────────────────────────────────────────
-const AIChatbot = () => {
-  const { chatOpen, setChatOpen, chatMessages, addMessage } = useStore();
-  const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
-  const endRef = useRef(null);
-
-  const aiResponses = [
-    "Based on the current RSI at 67.4, I recommend a cautious bullish stance. The momentum is strong, but position sizing should be conservative.",
-    "Your recent overconfidence bias detected in the last 3 trades. Consider reducing position size by 20% until the pattern normalizes.",
-    "NIFTY is showing institutional accumulation patterns. Volume profile VPOC at 22,180 is the key level to watch.",
-    "Your win rate this week is 68%. You're trending well. Focus on holding winners longer — your average hold time is below 4 candles.",
-    "The Bollinger Band squeeze on the 1H chart suggests a major breakout within 2-3 sessions. Watch for volume confirmation.",
-  ];
-
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, typing]);
-
-  const handleSend = () => {
-    if (!input.trim()) return;
-    addMessage({ role: "user", content: input });
-    setInput("");
-    setTyping(true);
-    setTimeout(() => {
-      setTyping(false);
-      addMessage({ role: "assistant", content: aiResponses[Math.floor(Math.random() * aiResponses.length)] });
-    }, 1200 + Math.random() * 800);
-  };
-
-  return (
-    <>
-      <motion.button
-        onClick={() => setChatOpen(!chatOpen)}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-violet-600 shadow-[0_0_30px_rgba(99,102,241,0.4)] flex items-center justify-center"
-      >
-        <AnimatePresence mode="wait">
-          {chatOpen
-            ? <motion.div key="x" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}><X size={20} className="text-white" /></motion.div>
-            : <motion.div key="chat" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}><MessageSquare size={20} className="text-white" /></motion.div>
-          }
-        </AnimatePresence>
-      </motion.button>
-
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            initial={{ x: 400, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 400, opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 250 }}
-            className="fixed bottom-24 right-6 z-50 w-[360px] h-[520px] bg-gray-950/95 backdrop-blur-2xl border border-gray-800/60 rounded-2xl shadow-[0_0_60px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden"
-          >
-            <div className="p-4 border-b border-gray-800/50 flex items-center gap-3 bg-gradient-to-r from-blue-600/10 to-violet-600/10">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
-                <Brain size={16} className="text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-white">EduFin AI Coach</p>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <p className="text-xs text-gray-400">Active • Analyzing your portfolio</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-800">
-              {chatMessages.map((msg, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-gradient-to-r from-blue-600 to-violet-600 text-white rounded-br-sm'
-                      : 'bg-gray-800/80 text-gray-200 rounded-bl-sm border border-gray-700/50'
-                  }`}>
-                    {msg.content}
-                  </div>
-                </motion.div>
-              ))}
-              {typing && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1.5 px-3.5 py-2.5 bg-gray-800/80 rounded-2xl rounded-bl-sm w-fit border border-gray-700/50">
-                  {[0, 1, 2].map(i => (
-                    <motion.div key={i} animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: i * 0.15 }} className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
-                  ))}
-                </motion.div>
-              )}
-              <div ref={endRef} />
-            </div>
-
-            <div className="p-3 border-t border-gray-800/50">
-              <div className="flex gap-2">
-                <input
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSend()}
-                  placeholder="Ask about your trades, biases, strategy..."
-                  className="flex-1 bg-gray-800/60 border border-gray-700/50 rounded-xl px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/50"
-                />
-                <button onClick={handleSend} className="p-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:opacity-90 transition-opacity">
-                  <Send size={15} className="text-white" />
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
-  );
-};
-
-// ─── DASHBOARD MODULE ────────────────────────────────────────────────────────
-const DashboardModule = () => {
-  const { balance, pnl, pnlPercent, openPositions } = useStore();
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => { setTimeout(() => setLoaded(true), 600); }, []);
-
-  const stats = [
-    { label: "Accuracy", value: "68.4%", sub: "+2.1% WoW", up: true, icon: Target, color: "text-emerald-400" },
-    { label: "Confidence Cal.", value: "74.2%", sub: "-0.3% WoW", up: false, icon: Shield, color: "text-blue-400" },
-    { label: "AI Beat Rate", value: "61.5%", sub: "+4.2% WoW", up: true, icon: Brain, color: "text-violet-400" },
-    { label: "Sharpe Ratio", value: "2.14", sub: "Excellent", up: true, icon: TrendingUp, color: "text-amber-400" },
-  ];
-
-  return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h1 className="text-xl font-bold text-white">Portfolio Overview</h1>
-          <p className="text-sm text-gray-500">Friday, 27 Feb 2026 • Market Open</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800 border border-gray-700 text-xs text-gray-300 hover:bg-gray-750 transition-colors">
-            <Filter size={12} /> Filter
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800 border border-gray-700 text-xs text-gray-300 hover:bg-gray-750 transition-colors">
-            <Download size={12} /> Export
-          </button>
-        </div>
-      </div>
-
-      {/* Portfolio Balance Card */}
-      {!loaded ? <Skeleton className="h-[140px]" /> : (
-        <GlassCard className="p-5" glow>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Total Portfolio Value</p>
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-4xl font-black text-white tracking-tight"
-              >
-                ₹{balance.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-              </motion.p>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="flex items-center gap-1 text-emerald-400 text-sm font-semibold">
-                  <ArrowUpRight size={15} />
-                  +₹{pnl.toLocaleString()} ({pnlPercent}%) today
-                </div>
-                <span className="text-xs text-gray-600">vs yesterday</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500 mb-1">Open Positions</p>
-              <p className="text-2xl font-bold text-white">{openPositions.length}</p>
-              <p className="text-xs text-gray-500">2 active trades</p>
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {openPositions.map(p => (
-              <div key={p.id} className="bg-gray-800/60 rounded-xl p-3 border border-gray-700/40">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-white">{p.symbol}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.type === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.type}</span>
-                </div>
-                <p className="text-xs text-gray-500">Entry: ₹{p.entry.toLocaleString()} · Qty: {p.qty}</p>
-                <p className={`text-sm font-bold mt-1 ${p.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {p.pnl >= 0 ? '+' : ''}₹{p.pnl.toLocaleString()}
-                </p>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-      )}
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          !loaded ? <Skeleton key={i} className="h-24" /> : (
-            <motion.div key={i} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-              <GlassCard className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">{s.label}</p>
-                    <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
-                    <div className={`flex items-center gap-1 text-xs mt-1 ${s.up ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {s.up ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-                      {s.sub}
-                    </div>
-                  </div>
-                  <div className={`p-2 rounded-xl bg-gray-800/80`}>
-                    <s.icon size={15} className={s.color} />
-                  </div>
-                </div>
-              </GlassCard>
-            </motion.div>
-          )
-        ))}
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-2 gap-4">
-        <GlassCard className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-white">Weekly P&L — AI vs You</h3>
-            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-lg">7D</span>
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={weeklyPnl}>
-              <defs>
-                <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-              <XAxis dataKey="day" tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v >= 0 ? '' : '-'}${Math.abs(v/1000).toFixed(1)}k`} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="pnl" stroke="#3B82F6" strokeWidth={2} fill="url(#pnlGrad)" name="You" dot={false} />
-              <Area type="monotone" dataKey="ai" stroke="#8B5CF6" strokeWidth={2} fill="url(#aiGrad)" name="AI" dot={false} strokeDasharray="4 2" />
-            </AreaChart>
-          </ResponsiveContainer>
-          <div className="flex gap-4 mt-2">
-            <div className="flex items-center gap-1.5"><div className="w-3 h-0.5 bg-blue-500 rounded" /><span className="text-xs text-gray-500">Your P&L</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-0.5 bg-violet-500 rounded border-dashed" /><span className="text-xs text-gray-500">AI Model</span></div>
-          </div>
-        </GlassCard>
-
-        <GlassCard className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-white">Behavioral Bias Trends</h3>
-            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-lg">4W</span>
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={biasData} barSize={8}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-              <XAxis dataKey="week" tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="overconf" fill="#EF4444" radius={[3, 3, 0, 0]} name="Overconf." />
-              <Bar dataKey="fomo" fill="#F59E0B" radius={[3, 3, 0, 0]} name="FOMO" />
-              <Bar dataKey="herd" fill="#8B5CF6" radius={[3, 3, 0, 0]} name="Herding" />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-      </div>
-    </div>
-  );
-};
-
-// ─── INDICATORS MODULE ────────────────────────────────────────────────────────
-const IndicatorsModule = () => (
-  <div className="p-6 space-y-4">
-    <div className="flex items-center justify-between mb-2">
-      <h1 className="text-xl font-bold text-white">Indicator Research</h1>
-      <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-xl">NIFTY50 · Spot · 1H</span>
-    </div>
-    <div className="grid grid-cols-2 gap-4">
-      {indicators.map((ind, i) => (
-        <motion.div key={i} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-          <GlassCard className="p-5 h-full" glow={ind.confidence > 75}>
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <h3 className="text-sm font-bold text-white">{ind.name}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Value: <span className="text-blue-400 font-semibold">{ind.value}</span></p>
-              </div>
-              <div className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                ind.signal === 'BULLISH' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' :
-                ind.signal === 'BEARISH' ? 'bg-red-500/15 text-red-400 border-red-500/25' :
-                'bg-gray-700/50 text-gray-300 border-gray-600/50'
-              }`}>{ind.signal}</div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-500">Confidence</span>
-                  <span className="text-white font-semibold">{ind.confidence}%</span>
-                </div>
-                <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${ind.confidence}%` }}
-                    transition={{ duration: 1, delay: i * 0.1 }}
-                    className={`h-full rounded-full ${ind.confidence >= 75 ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : ind.confidence >= 60 ? 'bg-gradient-to-r from-blue-500 to-violet-500' : 'bg-gradient-to-r from-yellow-500 to-orange-500'}`}
-                  />
-                </div>
-              </div>
-
-              <div className="bg-gray-800/60 rounded-xl p-3 border border-gray-700/40">
-                <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider">Trading Bias</p>
-                <p className="text-xs font-semibold text-blue-300">{ind.bias}</p>
-              </div>
-
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
-                <p className="text-xs text-amber-400 mb-1 font-medium flex items-center gap-1"><AlertTriangle size={11} /> Risk Note</p>
-                <p className="text-xs text-gray-300 leading-relaxed">{ind.risk}</p>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wider">Interpretation</p>
-                <p className="text-xs text-gray-300 leading-relaxed">{ind.interpretation}</p>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-      ))}
-    </div>
+    <input type="range" min={min} max={max} step={step} value={value}
+      onChange={e => onChange(name, parseFloat(e.target.value))} />
   </div>
 );
 
-// ─── AI DECISION MODULE ───────────────────────────────────────────────────────
-const AIDecisionModule = () => {
-  const [userSignal, setUserSignal] = useState("HOLD");
-  const aiSignal = "BUY";
-  const aiConfidence = 78;
-  const userConfidence = 65;
-  const gap = aiConfidence - userConfidence;
+const SignalBadge = ({ signal }) => {
+  const map = {
+    BULLISH:"badge-green", BEARISH:"badge-red", NEUTRAL:"badge-yellow",
+    OVERBOUGHT:"badge-red", OVERSOLD:"badge-green",
+    BUY:"badge-green", SELL:"badge-red", HOLD:"badge-yellow", WAIT:"badge-yellow",
+    HIGH:"badge-blue", MEDIUM:"badge-yellow", LOW:"badge-purple",
+    CORRECT:"badge-green", INCORRECT:"badge-red",
+    STRONG:"badge-blue", MODERATE:"badge-yellow", WEAK:"badge-red", UNRELIABLE:"badge-red",
+    ADVANCED:"badge-cyan", INTERMEDIATE:"badge-blue", BEGINNER:"badge-yellow",
+    CALIBRATED:"badge-green", OVERCONFIDENT:"badge-red", UNDERCONFIDENT:"badge-purple",
+  };
+  return <span className={`badge ${map[signal] || "badge-blue"}`}>{signal}</span>;
+};
 
-  const biases = [
-    { name: "Overconfidence", score: 42, desc: "You've overestimated win probability in 3 of last 5 trades" },
-    { name: "Loss Aversion", score: 68, desc: "Detected early exit pattern — cutting winners prematurely" },
-    { name: "Herding", score: 35, desc: "Following market direction without independent analysis" },
-    { name: "FOMO", score: 55, desc: "Position size increased after 2 consecutive wins last week" },
-  ];
+const RRow = ({ label, value, isSignal }) => (
+  <div className="result-row">
+    <span className="result-key">{label}</span>
+    <span className="result-val">{isSignal ? <SignalBadge signal={value} /> : value}</span>
+  </div>
+);
+
+const RBlock = ({ label, children }) => (
+  <div className="result-block">
+    <span className="result-key">{label}</span>
+    <div>{children}</div>
+  </div>
+);
+
+const Empty = ({ icon = "chart", text = "Configure and run analysis" }) => (
+  <div className="empty">
+    <Icon name={icon} size={36} color="#2A3450" />
+    <p>{text}</p>
+  </div>
+);
+
+const ProgBar = ({ val, cls = "prog-b", size = "" }) => (
+  <div className={`prog ${size}`}>
+    <div className={`prog-fill ${cls}`} style={{ width: `${Math.min(Math.max(val, 0), 100)}%` }} />
+  </div>
+);
+
+// ─── QUIZ DATA ────────────────────────────────────────────────────────────────
+const QUIZ_Q = [
+  { id:"q1", text:"An RSI reading of 78 indicates which condition?", opts:["Oversold","Neutral","Overbought","Trending"], ans:"C", topic:"RSI", diff:"EASY", exp:"RSI above 70 indicates overbought conditions where price momentum may be exhausted." },
+  { id:"q2", text:"What is variance drag in high-volatility environments?", opts:["Transaction cost increase","Reduction in compounded returns from volatility","Moving average lag","Bid-ask spread widening"], ans:"B", topic:"VOLATILITY", diff:"MEDIUM", exp:"Variance drag is the mathematical reduction in compounded returns caused by volatility. A 20% gain then 20% loss = -4% net, not breakeven." },
+  { id:"q3", text:"A risk score of 0.85 should primarily affect which parameter?", opts:["Entry timing only","Position sizing and stop-loss","Trade direction","Holding period"], ans:"B", topic:"RISK", diff:"MEDIUM", exp:"High risk scores signal elevated exposure. Primary response: reduce position size and tighten stop-loss parameters." },
+];
+const KEYS = ["A","B","C","D"];
+
+// ─── PAGE: INDICATOR EXPLAINER ────────────────────────────────────────────────
+const IndicatorPage = () => {
+  const [form, setForm] = useState({ indicator:"RSI", value:73.5, timeframe:"1D", market_regime:"trending", current_price:"", avg_volume:"" });
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const analyze = async () => {
+    setLoading(true);
+    try {
+      const extra = {};
+      if (form.current_price) extra.current_price = parseFloat(form.current_price);
+      if (form.avg_volume) extra.avg_volume = parseFloat(form.avg_volume);
+      const res = await api.post("/education/indicator/explain", { indicator: form.indicator, value: parseFloat(form.value), context: { timeframe: form.timeframe, asset_class: "equity", market_regime: form.market_regime, extra } });
+      setResult(res); toast("Analysis complete", "success");
+    } catch {
+      toast("Demo mode — showing sample result", "error");
+      setResult({ indicator_name: form.indicator, value: form.value, market_signal:"OVERBOUGHT", interpretation:"RSI at 73.5 exceeds the overbought threshold. Upward momentum remains but exhaustion signals are present. Consider reducing long exposure or tightening stops.", trading_bias:"HOLD", confidence_hint:"MEDIUM", risk_note:"In strong trending markets RSI can remain overbought for extended periods — use price action confirmation.", definition:"The RSI is a momentum oscillator measuring speed and magnitude of price changes on a 0–100 scale." });
+    }
+    setLoading(false);
+  };
 
   return (
-    <div className="p-6 space-y-5">
-      <h1 className="text-xl font-bold text-white mb-4">AI Decision Engine</h1>
-
-      <div className="grid grid-cols-3 gap-4">
-        {/* Signal Comparison */}
-        <GlassCard className="p-5 col-span-2" glow>
-          <h3 className="text-sm font-bold text-white mb-5">Signal Comparison — NIFTY50 · 1H</h3>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="text-center">
-              <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">AI Model Signal</p>
-              <motion.div
-                animate={{ boxShadow: ['0 0 20px rgba(16,185,129,0.2)', '0 0 40px rgba(16,185,129,0.4)', '0 0 20px rgba(16,185,129,0.2)'] }}
-                transition={{ repeat: Infinity, duration: 2 }}
-                className="w-24 h-24 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto mb-3"
-              >
-                <div>
-                  <TrendingUp size={32} className="text-emerald-400 mx-auto mb-1" />
-                  <p className="text-xs font-black text-emerald-400">{aiSignal}</p>
-                </div>
-              </motion.div>
-              <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${aiConfidence}%` }}
-                  transition={{ duration: 1.2, ease: "easeOut" }}
-                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-                />
-              </div>
-              <p className="text-lg font-black text-emerald-400 mt-2">{aiConfidence}%</p>
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Indicator Explainer</div>
+        <div className="page-sub">Deterministic rule-based analysis for RSI, EMA, SMA, Volume & Volatility</div>
+      </div>
+      <div className="g2">
+        {/* Input */}
+        <div className="card glow-b">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(59,130,246,0.15)" }}><Icon name="chart" size={14} color="#60A5FA" /></div>
+            Configuration
+          </div>
+          <Fld label="Indicator">
+            <select className="select" value={form.indicator} onChange={e => set("indicator", e.target.value)}>
+              {["RSI","EMA","SMA","Volume","Volatility"].map(i => <option key={i}>{i}</option>)}
+            </select>
+          </Fld>
+          <div style={{ marginTop: 12 }} />
+          <Fld label="Current Value">
+            <input className="input" type="number" value={form.value} onChange={e => set("value", e.target.value)} placeholder="e.g. 73.5" />
+          </Fld>
+          <div className="inline-g" style={{ marginTop: 12 }}>
+            <Fld label="Timeframe">
+              <select className="select" value={form.timeframe} onChange={e => set("timeframe", e.target.value)}>
+                {["1M","5M","15M","1H","4H","1D","1W"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </Fld>
+            <Fld label="Market Regime">
+              <select className="select" value={form.market_regime} onChange={e => set("market_regime", e.target.value)}>
+                {["trending","ranging","volatile","unknown"].map(r => <option key={r}>{r}</option>)}
+              </select>
+            </Fld>
+          </div>
+          {(form.indicator === "EMA" || form.indicator === "SMA") && (
+            <div style={{ marginTop: 12 }}>
+              <Fld label="Current Price">
+                <input className="input" type="number" value={form.current_price} onChange={e => set("current_price", e.target.value)} placeholder="e.g. 194.75" />
+              </Fld>
             </div>
+          )}
+          {form.indicator === "Volume" && (
+            <div style={{ marginTop: 12 }}>
+              <Fld label="Average Volume">
+                <input className="input" type="number" value={form.avg_volume} onChange={e => set("avg_volume", e.target.value)} placeholder="e.g. 4200000" />
+              </Fld>
+            </div>
+          )}
+          <div style={{ marginTop: 18 }}>
+            <button className="btn btn-primary btn-full" onClick={analyze} disabled={loading}>
+              {loading ? <><Spinner /> Analyzing…</> : <><Icon name="zap" size={14} color="#fff" /> Analyze Indicator</>}
+            </button>
+          </div>
+        </div>
 
-            <div className="text-center">
-              <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">Your Signal</p>
-              <div className="flex gap-2 justify-center mb-3">
-                {["BUY", "HOLD", "SELL"].map(s => (
-                  <button key={s} onClick={() => setUserSignal(s)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      userSignal === s
-                        ? s === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : s === 'SELL' ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                          : 'bg-gray-600/40 text-gray-300 border border-gray-500/30'
-                        : 'bg-gray-800 text-gray-500 border border-gray-700/50 hover:text-gray-300'
-                    }`}
-                  >{s}</button>
+        {/* Output */}
+        <div className="card">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(139,92,246,0.15)" }}><Icon name="info" size={14} color="#A78BFA" /></div>
+            Analysis Result
+          </div>
+          {result ? (
+            <div className="result-panel">
+              <RRow label="Indicator" value={result.indicator_name} />
+              <RRow label="Signal" value={result.market_signal} isSignal />
+              <RRow label="Trading Bias" value={result.trading_bias} isSignal />
+              <RRow label="Confidence" value={result.confidence_hint} isSignal />
+              <RBlock label="Interpretation">
+                <p style={{ fontSize:12.5, color:"#CBD5E1", lineHeight:1.65 }}>{result.interpretation}</p>
+              </RBlock>
+              <RBlock label="Risk Note">
+                <div className="warn-banner" style={{ padding:"8px 10px", margin:0 }}>
+                  <p style={{ fontSize:12, lineHeight:1.6, margin:0 }}>{result.risk_note}</p>
+                </div>
+              </RBlock>
+            </div>
+          ) : <Empty />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── PAGE: AI DECISION ────────────────────────────────────────────────────────
+const AIDecisionPage = () => {
+  const [scores, setScores] = useState({ lstm_score:0.78, cnn_score:0.72, technical_score:0.68, sentiment_score:0.61, risk_score:0.35, confidence:0.76 });
+  const [decision, setDecision] = useState("BUY");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const setS = (k, v) => setScores(p => ({ ...p, [k]: v }));
+
+  const colors = ["prog-b","prog-g","prog-p","prog-y","prog-b"];
+  const modelLabels = { lstm:"LSTM Trend", cnn:"CNN Pattern", technical:"Technical", sentiment:"Sentiment", risk:"Risk (inv.)" };
+
+  const submit = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post("/education/ai-decision/explain", { ...scores, final_decision: decision });
+      setResult(res); toast("Decision explained", "success");
+    } catch {
+      toast("Demo mode — showing sample result", "error");
+      setResult({
+        final_decision: decision, confidence: scores.confidence,
+        agreement_level:"HIGH", agreement_ratio:1.0, explanation_strength:"STRONG",
+        weighted_contributions: {
+          lstm:{ raw_score:0.78, weight:0.3, contribution:0.234 },
+          cnn:{ raw_score:0.72, weight:0.2, contribution:0.144 },
+          technical:{ raw_score:0.68, weight:0.25, contribution:0.17 },
+          sentiment:{ raw_score:0.61, weight:0.15, contribution:0.0915 },
+          risk:{ raw_score:0.65, weight:0.1, contribution:0.065 },
+        },
+        reasoning_points:[
+          "LSTM signals strong upside momentum (0.78)",
+          "CNN identified bullish pattern formation (0.72)",
+          "Technical indicators aligned bullish (0.68)",
+          "News sentiment neutral-positive (0.61)",
+          "Risk within acceptable bounds (0.35)",
+        ],
+        risk_adjustment_explanation:"Risk score 0.35 is within acceptable bounds. No material confidence penalty applied.",
+      });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">AI Decision Explainer</div>
+        <div className="page-sub">Decompose ensemble model contributions with weighted attribution</div>
+      </div>
+      <div className="g2">
+        {/* Inputs */}
+        <div className="card glow-p">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(139,92,246,0.15)" }}><Icon name="brain" size={14} color="#A78BFA" /></div>
+            Model Inputs
+          </div>
+          <Slider label="LSTM Score" name="lstm_score" value={scores.lstm_score} onChange={setS} />
+          <Slider label="CNN Score" name="cnn_score" value={scores.cnn_score} onChange={setS} />
+          <Slider label="Technical Score" name="technical_score" value={scores.technical_score} onChange={setS} />
+          <Slider label="Sentiment Score" name="sentiment_score" value={scores.sentiment_score} onChange={setS} />
+          <Slider label="Risk Score" name="risk_score" value={scores.risk_score} onChange={setS} />
+          <Slider label="Confidence" name="confidence" value={scores.confidence} onChange={setS} />
+          <div style={{ marginTop: 12 }}>
+            <Fld label="Final Decision">
+              <select className="select" value={decision} onChange={e => setDecision(e.target.value)}>
+                {["BUY","SELL","HOLD"].map(d => <option key={d}>{d}</option>)}
+              </select>
+            </Fld>
+          </div>
+          <div style={{ marginTop: 18 }}>
+            <button className="btn btn-primary btn-full" onClick={submit} disabled={loading}>
+              {loading ? <><Spinner /> Processing…</> : <><Icon name="brain" size={14} color="#fff" /> Explain Decision</>}
+            </button>
+          </div>
+        </div>
+
+        {/* Output */}
+        <div className="card">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(59,130,246,0.15)" }}><Icon name="trending" size={14} color="#60A5FA" /></div>
+            Decision Breakdown
+          </div>
+          {result ? (
+            <>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
+                <SignalBadge signal={result.final_decision} />
+                <SignalBadge signal={result.agreement_level} />
+                <SignalBadge signal={result.explanation_strength} />
+              </div>
+              <div style={{ marginBottom:16 }}>
+                {Object.entries(result.weighted_contributions).map(([model, data], i) => (
+                  <div key={model} className="contrib">
+                    <div className="contrib-hd">
+                      <span className="contrib-name">{modelLabels[model] || model}</span>
+                      <span className="contrib-score" style={{ color:"#60A5FA" }}>
+                        {(data.raw_score*100).toFixed(0)}% × {(data.weight*100).toFixed(0)}% = {(data.contribution*100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <ProgBar val={data.contribution * 300} cls={colors[i]} />
+                  </div>
                 ))}
               </div>
-              <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden">
-                <motion.div
-                  animate={{ width: `${userConfidence}%` }}
-                  transition={{ duration: 1 }}
-                  className="h-full bg-gradient-to-r from-blue-500 to-violet-500 rounded-full"
-                />
+              <div className="div" />
+              <div style={{ fontSize:12.5, color:"#CBD5E1", lineHeight:1.7, display:"flex", flexDirection:"column", gap:4, marginBottom:12 }}>
+                {result.reasoning_points?.map((pt, i) => (
+                  <div key={i} style={{ display:"flex", gap:7, alignItems:"flex-start" }}>
+                    <span style={{ color:"#3B82F6", flexShrink:0, marginTop:2 }}>›</span>{pt}
+                  </div>
+                ))}
               </div>
-              <p className="text-lg font-black text-blue-400 mt-2">{userConfidence}%</p>
-            </div>
-          </div>
-
-          <div className="mt-5 p-4 bg-gray-800/50 rounded-xl border border-gray-700/40">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-400">Confidence Gap</span>
-              <span className={`text-xs font-bold ${gap > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>+{gap}% AI advantage</span>
-            </div>
-            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.abs(gap) / 40 * 100}%` }}
-                transition={{ duration: 1 }}
-                className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full"
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-2">The AI model has 13% higher signal confidence based on multi-factor analysis</p>
-          </div>
-        </GlassCard>
-
-        {/* Behavior Score */}
-        <GlassCard className="p-5">
-          <h3 className="text-sm font-bold text-white mb-4">Behavioral Score</h3>
-          <div className="flex flex-col items-center justify-center py-2">
-            <div className="relative w-28 h-28">
-              <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-                <circle cx="60" cy="60" r="48" fill="none" stroke="#1F2937" strokeWidth="10" />
-                <motion.circle
-                  cx="60" cy="60" r="48" fill="none"
-                  stroke="url(#scoreGrad)"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 48}`}
-                  initial={{ strokeDashoffset: 2 * Math.PI * 48 }}
-                  animate={{ strokeDashoffset: 2 * Math.PI * 48 * (1 - 0.62) }}
-                  transition={{ duration: 1.5, ease: "easeOut" }}
-                />
-                <defs>
-                  <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#3B82F6" />
-                    <stop offset="100%" stopColor="#8B5CF6" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-black text-white">62</span>
-                <span className="text-xs text-gray-500">/100</span>
+              <div className="warn-banner">
+                <Icon name="info" size={14} color="#FCD34D" />
+                <span>{result.risk_adjustment_explanation}</span>
               </div>
-            </div>
-            <p className="text-sm font-bold text-white mt-3">Average Trader</p>
-            <p className="text-xs text-gray-500 text-center mt-1">Work on discipline to reach Elite tier</p>
-          </div>
-        </GlassCard>
+            </>
+          ) : <Empty icon="brain" text="Configure model scores and submit" />}
+        </div>
       </div>
+    </div>
+  );
+};
 
-      {/* Bias Cards */}
-      <div className="grid grid-cols-4 gap-3">
-        {biases.map((b, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-            <GlassCard className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-white">{b.name}</p>
-                <span className={`text-xs font-bold ${b.score > 60 ? 'text-red-400' : b.score > 40 ? 'text-amber-400' : 'text-emerald-400'}`}>{b.score}</span>
-              </div>
-              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-2">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${b.score}%` }}
-                  transition={{ duration: 1, delay: i * 0.1 }}
-                  className={`h-full rounded-full ${b.score > 60 ? 'bg-red-500' : b.score > 40 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                />
-              </div>
-              <p className="text-xs text-gray-500 leading-relaxed">{b.desc}</p>
-            </GlassCard>
-          </motion.div>
+// ─── PAGE: PLAYGROUND ─────────────────────────────────────────────────────────
+const PlaygroundPage = () => {
+  const [form, setForm] = useState({ user_prediction:"BUY", user_confidence:0.75, ai_prediction:"BUY", actual_outcome:"SELL" });
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const submit = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post("/education/playground/evaluate", form);
+      setResult(res); toast("Prediction evaluated", "success");
+    } catch {
+      toast("Demo mode — local evaluation", "error");
+      const hit = form.user_prediction === form.actual_outcome;
+      setResult({
+        user_prediction: form.user_prediction, ai_prediction: form.ai_prediction,
+        actual_outcome: form.actual_outcome, user_confidence: form.user_confidence,
+        correctness: hit ? "CORRECT" : "INCORRECT",
+        accuracy_score: hit ? 1.0 : 0.0,
+        calibration_score: 0.19, calibration_level:"OVERCONFIDENT",
+        bias_detection:{ type:"CALIBRATED", explanation:"No persistent directional bias detected." },
+        feedback_report:{
+          outcome_summary:`Your prediction (${form.user_prediction}) ${hit ? "matched" : "did not match"} the actual outcome (${form.actual_outcome}).`,
+          confidence_assessment:`You stated ${(form.user_confidence*100).toFixed(0)}% confidence. Calibration: OVERCONFIDENT. Score: 0.190/1.000`,
+          ai_comparison:`AI predicted ${form.ai_prediction}. ${form.user_prediction === form.ai_prediction ? "Your prediction agreed with the AI." : "Your prediction diverged from the AI."}`,
+          behavioral_insight:"Overconfidence Bias detected. Confidence exceeded what was statistically warranted. Sustained overconfidence leads to under-hedged positions and concentration risk.",
+          improvement_focus:"Review the confidence calibration framework. Match stated confidence to evidence, not emotional conviction.",
+        },
+      });
+    }
+    setLoading(false);
+  };
+
+  const DirPicker = ({ label, field }) => (
+    <Fld label={label}>
+      <div className="dir-btns">
+        {["BUY","SELL","HOLD"].map(d => (
+          <button key={d} className={`dir-btn ${form[field] === d ? `active-${d.toLowerCase()}` : ""}`} onClick={() => set(field, d)}>{d}</button>
         ))}
       </div>
+    </Fld>
+  );
+
+  return (
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Prediction Playground</div>
+        <div className="page-sub">Practice market calls and get behavioral finance coaching</div>
+      </div>
+      <div className="info-banner">
+        <Icon name="info" size={14} color="#60A5FA" />
+        <span>Make your directional call, set confidence, then reveal the actual outcome to receive calibration and behavioral feedback.</span>
+      </div>
+      <div className="g2">
+        {/* Input */}
+        <div className="card glow-b">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(16,185,129,0.15)" }}><Icon name="target" size={14} color="#34D399" /></div>
+            Your Prediction
+          </div>
+          <DirPicker label="Your Call" field="user_prediction" />
+          <div style={{ marginTop: 12 }}>
+            <Slider label={`Confidence — ${(form.user_confidence*100).toFixed(0)}%`} name="user_confidence" value={form.user_confidence} onChange={(k,v) => set(k,v)} />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <DirPicker label="AI Recommendation" field="ai_prediction" />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <DirPicker label="Actual Market Outcome" field="actual_outcome" />
+          </div>
+          <div style={{ marginTop: 18 }}>
+            <button className="btn btn-primary btn-full" onClick={submit} disabled={loading}>
+              {loading ? <><Spinner /> Evaluating…</> : <><Icon name="zap" size={14} color="#fff" /> Evaluate Prediction</>}
+            </button>
+          </div>
+        </div>
+
+        {/* Output */}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {result ? (
+            <>
+              <div className="card fade-in">
+                <div className="card-hd" style={{ marginBottom:12 }}>
+                  <div className="card-hd-icon" style={{ background:"rgba(16,185,129,0.15)" }}><Icon name="check" size={14} color="#34D399" /></div>
+                  Outcome Summary
+                </div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+                  <SignalBadge signal={result.correctness} />
+                  <SignalBadge signal={result.calibration_level} />
+                  <SignalBadge signal={result.bias_detection?.type} />
+                </div>
+                <div className="result-panel">
+                  <RRow label="Accuracy" value={result.accuracy_score === 1 ? "✓ Correct" : "✗ Incorrect"} />
+                  <RRow label="Calibration Score" value={`${result.calibration_score?.toFixed(3)} / 1.000`} />
+                </div>
+              </div>
+              <div className="card fade-in">
+                <div className="card-hd" style={{ marginBottom:12 }}>
+                  <div className="card-hd-icon" style={{ background:"rgba(139,92,246,0.15)" }}><Icon name="brain" size={14} color="#A78BFA" /></div>
+                  Behavioral Coaching
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+                  <div style={{ padding:"9px 11px", background:"rgba(16,185,129,0.07)", borderRadius:8, border:"1px solid rgba(16,185,129,0.15)", fontSize:12.5, color:"#34D399", lineHeight:1.6 }}>
+                    {result.feedback_report?.outcome_summary}
+                  </div>
+                  <div style={{ fontSize:12.5, color:"#94A3B8", lineHeight:1.7 }}>{result.feedback_report?.behavioral_insight}</div>
+                  <div style={{ padding:"9px 11px", background:"rgba(59,130,246,0.07)", borderRadius:8, border:"1px solid rgba(59,130,246,0.15)", fontSize:12.5, color:"#93C5FD", lineHeight:1.6 }}>
+                    <strong>Focus: </strong>{result.feedback_report?.improvement_focus}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="card" style={{ flex:1 }}>
+              <Empty icon="target" text="Submit a prediction to receive coaching feedback" />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
 
-// ─── TRADING SIMULATION ───────────────────────────────────────────────────────
-const SimulationModule = () => {
-  const chartContainerRef = useRef(null);
-  const chartRef = useRef(null);
-  const candleSeriesRef = useRef(null);
-  const volumeSeriesRef = useRef(null);
-  const { addToast, addTrade, addXP, updateBalance, confidenceSlider, setConfidence } = useStore();
+// ─── PAGE: STRATEGY SIM ───────────────────────────────────────────────────────
+const StrategyPage = () => {
+  const [form, setForm] = useState({ investment_amount:10000, predicted_change_percent:12.5, risk_score:0.35, volatility_score:0.40, scenario_type:"NORMAL" });
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const [timeframe, setTimeframe] = useState("5m");
-  const [position, setPosition] = useState(null);
-  const [tradeHistory, setTradeHistory] = useState([]);
-  const [currentPrice, setCurrentPrice] = useState(22148.50);
-  const [qty, setQty] = useState(25);
-  const [showOutcome, setShowOutcome] = useState(null);
-  const [candles, setCandles] = useState([]);
-  const [biasWarning, setBiasWarning] = useState(null);
-
-  const ohlcData = useMemo(() => generateOHLC(120, 22000, 80), []);
-
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-    const { createChart } = window.LightweightCharts || {};
-    if (!createChart) return;
-
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 320,
-      layout: { background: { color: "transparent" }, textColor: "#9CA3AF" },
-      grid: { vertLines: { color: "#1F2937" }, horzLines: { color: "#1F2937" } },
-      crosshair: { mode: 1 },
-      rightPriceScale: { borderColor: "#374151" },
-      timeScale: { borderColor: "#374151", timeVisible: true },
-    });
-
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: "#10B981", downColor: "#EF4444",
-      borderUpColor: "#10B981", borderDownColor: "#EF4444",
-      wickUpColor: "#10B981", wickDownColor: "#EF4444",
-    });
-    candleSeries.setData(ohlcData);
-
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: { type: "volume" },
-      priceScaleId: "volume",
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-    volumeSeries.setData(ohlcData.map(d => ({
-      time: d.time,
-      value: d.volume,
-      color: d.close >= d.open ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"
-    })));
-
-    chartRef.current = chart;
-    candleSeriesRef.current = candleSeries;
-    volumeSeriesRef.current = volumeSeries;
-    setCurrentPrice(ohlcData[ohlcData.length - 1].close);
-    setCandles(ohlcData);
-
-    const obs = new ResizeObserver(() => {
-      if (chartContainerRef.current) chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-    });
-    obs.observe(chartContainerRef.current);
-    return () => { chart.remove(); obs.disconnect(); };
-  }, [ohlcData]);
-
-  const handleTrade = (direction) => {
-    if (position) {
-      addToast({ type: "warning", message: "Close existing position first" });
-      return;
+  const simulate = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post("/education/strategy/simulate", form);
+      setResult(res); toast("Simulation complete", "success");
+    } catch {
+      toast("Demo mode — running simulation", "error");
+      const inv = form.investment_amount;
+      const proj = inv * (1 + form.predicted_change_percent / 100) - inv * form.volatility_score * 0.05;
+      setResult({
+        initial_investment: inv,
+        projected_value: proj.toFixed(2),
+        projected_profit_loss: (proj - inv).toFixed(2),
+        risk_adjusted_value: (proj * (1 - form.risk_score * 0.3)).toFixed(2),
+        worst_case_projection: (inv * (1 - form.risk_score * 0.4 - form.volatility_score * 0.25)).toFixed(2),
+        volatility_impact: (inv * form.volatility_score * 0.05).toFixed(2),
+        scenario_applied: form.scenario_type,
+        educational_insight:"This simulation shows how risk and volatility erode compounded returns even when directional calls are correct. The risk-adjusted projection reflects realistic expected outcomes after accounting for downside probability and variance drag.",
+      });
     }
-    if (confidenceSlider > 85) setBiasWarning("Overconfidence detected — high confidence increases cognitive bias risk");
-    else setBiasWarning(null);
-
-    const entry = currentPrice;
-    const newPos = { direction, entry, qty, confidence: confidenceSlider, candleEntry: candles.length, ts: Date.now() };
-    setPosition(newPos);
-    addToast({ type: "success", message: `${direction} ${qty} units @ ₹${entry.toLocaleString()} | Conf: ${confidenceSlider}%` });
+    setLoading(false);
   };
 
-  const closePosition = () => {
-    if (!position) return;
-    const exit = currentPrice + (Math.random() - 0.48) * 120;
-    const pnl = position.direction === "BUY"
-      ? (exit - position.entry) * position.qty
-      : (position.entry - exit) * position.qty;
-    const trade = {
-      ...position, exit: +exit.toFixed(2), pnl: +pnl.toFixed(2),
-      direction: position.direction, candlesHeld: candles.length - position.candleEntry,
-    };
-
-    setShowOutcome(trade);
-    setTradeHistory(prev => [trade, ...prev].slice(0, 20));
-    addTrade(trade);
-    updateBalance(pnl);
-    addXP(pnl > 0 ? 120 : 30);
-    setPosition(null);
-    addToast({ type: pnl > 0 ? "success" : "error", message: `Trade closed: ${pnl > 0 ? '+' : ''}₹${pnl.toFixed(2)}` });
-    setTimeout(() => setShowOutcome(null), 3000);
-  };
-
-  const unrealizedPnL = position
-    ? ((position.direction === "BUY" ? currentPrice - position.entry : position.entry - currentPrice) * position.qty).toFixed(2)
-    : null;
+  const fmt = (v, prefix = "$") => `${prefix}${parseFloat(v || 0).toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 })}`;
 
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
-      <div className="flex-1 flex flex-col p-5 gap-4 overflow-y-auto">
-        {/* Controls */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-base font-black text-white">NIFTY50</span>
-            <span className="text-xl font-black text-emerald-400">₹{currentPrice.toLocaleString()}</span>
-            <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-lg">+0.42%</span>
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Strategy Simulator</div>
+        <div className="page-sub">Deterministic investment outcome modeling across market scenarios</div>
+      </div>
+      <div className="g2">
+        {/* Params */}
+        <div className="card glow-b">
+          <div className="card-hd">
+            <div className="card-hd-icon" style={{ background:"rgba(59,130,246,0.15)" }}><Icon name="trending" size={14} color="#60A5FA" /></div>
+            Simulation Parameters
           </div>
-          <div className="flex gap-1">
-            {["1m", "5m", "15m", "1H", "1D"].map(tf => (
-              <button key={tf} onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${timeframe === tf ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'}`}
-              >{tf}</button>
-            ))}
+          <Fld label="Investment Amount ($)">
+            <input className="input" type="number" value={form.investment_amount} onChange={e => set("investment_amount", parseFloat(e.target.value))} />
+          </Fld>
+          <div style={{ marginTop:12 }}>
+            <Fld label="Predicted Change (%)">
+              <input className="input" type="number" value={form.predicted_change_percent} onChange={e => set("predicted_change_percent", parseFloat(e.target.value))} step="0.5" />
+            </Fld>
+          </div>
+          <div style={{ marginTop:12 }}>
+            <Slider label="Risk Score" name="risk_score" value={form.risk_score} onChange={set} />
+            <Slider label="Volatility Score" name="volatility_score" value={form.volatility_score} onChange={set} />
+          </div>
+          <div style={{ marginTop:12 }}>
+            <Fld label="Scenario">
+              <select className="select" value={form.scenario_type} onChange={e => set("scenario_type", e.target.value)}>
+                {["NORMAL","MARKET_CRASH","HIGH_VOLATILITY"].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Fld>
+          </div>
+          <div style={{ marginTop:18 }}>
+            <button className="btn btn-primary btn-full" onClick={simulate} disabled={loading}>
+              {loading ? <><Spinner /> Simulating…</> : <><Icon name="zap" size={14} color="#fff" /> Run Simulation</>}
+            </button>
           </div>
         </div>
 
-        {/* Chart */}
-        <GlassCard className="overflow-hidden">
-          <div ref={chartContainerRef} className="w-full" style={{ height: 320 }} />
-        </GlassCard>
-
-        {/* Bias Warning */}
-        <AnimatePresence>
-          {biasWarning && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 flex items-center gap-2"
-            >
-              <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
-              <p className="text-xs text-red-300">{biasWarning}</p>
-              <button onClick={() => setBiasWarning(null)} className="ml-auto"><X size={12} className="text-red-400" /></button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Outcome Toast */}
-        <AnimatePresence>
-          {showOutcome && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className={`${showOutcome.pnl >= 0 ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-red-500/15 border-red-500/30'} border rounded-xl p-4 text-center`}
-            >
-              <p className="text-xs text-gray-400 mb-1">Trade Result</p>
-              <p className={`text-2xl font-black ${showOutcome.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {showOutcome.pnl >= 0 ? '+' : ''}₹{showOutcome.pnl.toFixed(2)}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Trading Controls */}
-        <GlassCard className="p-5">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-gray-400">Confidence Level</label>
-                  <span className={`text-xs font-bold ${confidenceSlider > 85 ? 'text-red-400' : confidenceSlider > 65 ? 'text-amber-400' : 'text-emerald-400'}`}>{confidenceSlider}%</span>
+        {/* Results */}
+        {result ? (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <div className="g2 gap-sm">
+              {[
+                { label:"Projected Value", val:result.projected_value, color:"#60A5FA" },
+                { label:"Profit / Loss", val:result.projected_profit_loss, color:parseFloat(result.projected_profit_loss)>=0?"#34D399":"#F87171" },
+                { label:"Risk-Adjusted", val:result.risk_adjusted_value, color:"#A78BFA" },
+                { label:"Worst Case", val:result.worst_case_projection, color:"#F87171" },
+              ].map(m => (
+                <div key={m.label} className="card metric-mini">
+                  <div className="metric-lbl">{m.label}</div>
+                  <div className="metric-val" style={{ color:m.color, fontSize:22 }}>{fmt(m.val)}</div>
                 </div>
-                <input
-                  type="range" min={20} max={100} value={confidenceSlider}
-                  onChange={e => setConfidence(+e.target.value)}
-                  className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
-                />
-                <div className="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>Cautious</span>
-                  <span>{confidenceSlider > 85 ? '⚠️ Overconfidence Risk' : 'Calibrated'}</span>
-                  <span>Aggressive</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-400 block mb-2">Quantity</label>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setQty(Math.max(1, qty - 5))} className="p-1.5 rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"><Minus size={13} className="text-gray-300" /></button>
-                  <span className="text-white font-bold w-12 text-center">{qty}</span>
-                  <button onClick={() => setQty(qty + 5)} className="p-1.5 rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors"><Plus size={13} className="text-gray-300" /></button>
-                  <span className="text-xs text-gray-500 ml-2">≈ ₹{(currentPrice * qty).toLocaleString()}</span>
-                </div>
-              </div>
+              ))}
             </div>
-
-            <div className="space-y-3">
-              <motion.button
-                onClick={() => handleTrade("BUY")}
-                disabled={!!position}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-              >
-                <TrendingUp size={16} /> BUY / LONG
-              </motion.button>
-              <motion.button
-                onClick={() => handleTrade("SELL")}
-                disabled={!!position}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-              >
-                <TrendingDown size={16} /> SELL / SHORT
-              </motion.button>
-              {position && (
-                <motion.button
-                  onClick={closePosition}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full py-3 rounded-xl bg-gray-700 border border-gray-600 text-white font-bold text-sm hover:bg-gray-600 transition-colors"
-                >
-                  Close Position
-                </motion.button>
-              )}
+            <div className="card">
+              <div className="metric-lbl" style={{ marginBottom:6 }}>Volatility Drag</div>
+              <div style={{ fontSize:14, fontWeight:700, color:"#FCD34D", marginBottom:12 }}>{fmt(result.volatility_impact)} cost to compounded returns</div>
+              <div style={{ fontSize:12.5, color:"#94A3B8", lineHeight:1.75 }}>{result.educational_insight}</div>
             </div>
-          </div>
-
-          {position && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-4 p-3 bg-gray-800/60 rounded-xl border border-gray-700/40 grid grid-cols-4 gap-4"
-            >
-              <div>
-                <p className="text-xs text-gray-500">Direction</p>
-                <p className={`text-sm font-bold ${position.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{position.direction}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Entry</p>
-                <p className="text-sm font-bold text-white">₹{position.entry.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Qty</p>
-                <p className="text-sm font-bold text-white">{position.qty}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Unrealized P&L</p>
-                <p className={`text-sm font-bold ${+unrealizedPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {+unrealizedPnL >= 0 ? '+' : ''}₹{unrealizedPnL}
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </GlassCard>
-      </div>
-
-      {/* Trade History Panel */}
-      <div className="w-[280px] border-l border-gray-800/50 bg-gray-950/50 p-4 overflow-y-auto">
-        <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Clock size={14} className="text-gray-400" /> Trade History</h3>
-        {tradeHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-center">
-            <Activity size={24} className="text-gray-700 mb-2" />
-            <p className="text-xs text-gray-600">No trades yet</p>
-            <p className="text-xs text-gray-700">Execute your first trade</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {tradeHistory.map((t, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className={`p-3 rounded-xl border ${t.pnl >= 0 ? 'bg-emerald-500/8 border-emerald-500/20' : 'bg-red-500/8 border-red-500/20'}`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-xs font-bold ${t.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{t.direction}</span>
-                  <span className={`text-xs font-black ${t.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {t.pnl >= 0 ? '+' : ''}₹{t.pnl.toFixed(0)}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500">Entry ₹{t.entry} → Exit ₹{t.exit}</p>
-                <p className="text-xs text-gray-600 mt-0.5">Conf: {t.confidence}% · {t.qty} units</p>
-              </motion.div>
-            ))}
+          <div className="card">
+            <Empty icon="trending" text="Configure parameters and run simulation" />
           </div>
         )}
       </div>
@@ -1111,265 +1221,425 @@ const SimulationModule = () => {
   );
 };
 
-// ─── GAMIFICATION MODULE ──────────────────────────────────────────────────────
-const GamificationModule = () => {
-  const { xp, xpMax, rank, streak, longestStreak } = useStore();
-  const [unlockedBadge, setUnlockedBadge] = useState(null);
+// ─── PAGE: QUIZ ───────────────────────────────────────────────────────────────
+const QuizPage = () => {
+  const [cur, setCur] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const q = QUIZ_Q[cur];
 
-  const badges = [
-    { name: "First Trade", icon: "🎯", unlocked: true, desc: "Completed first simulation" },
-    { name: "Streak Master", icon: "🔥", unlocked: true, desc: "7-day trading streak" },
-    { name: "AI Challenger", icon: "🤖", unlocked: true, desc: "Beat AI prediction 5 times" },
-    { name: "Risk Manager", icon: "🛡️", unlocked: true, desc: "0 overconfident trades in a week" },
-    { name: "Bias Buster", icon: "🧠", unlocked: false, desc: "Eliminate all cognitive biases" },
-    { name: "Institutional", icon: "🏛️", unlocked: false, desc: "Reach Institutional Mind rank" },
-  ];
+  const select = (key) => { if (!submitted) setAnswers(p => ({ ...p, [q.id]: key })); };
 
-  const heatColors = ["#111827", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa"];
-
-  return (
-    <div className="p-6 space-y-5">
-      <h1 className="text-xl font-bold text-white mb-2">Progress & Achievements</h1>
-
-      {/* Rank + XP */}
-      <div className="grid grid-cols-3 gap-4">
-        <GlassCard className="p-5 col-span-2" glow>
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-yellow-600/20 border border-amber-500/30 flex items-center justify-center">
-              <Trophy size={28} className="text-amber-400" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wider">Current Rank</p>
-              <p className="text-2xl font-black text-white">{rank}</p>
-              <p className="text-xs text-amber-400 font-semibold mt-0.5">{xp.toLocaleString()} / {xpMax.toLocaleString()} XP</p>
-            </div>
-            <div className="ml-auto text-right">
-              <p className="text-xs text-gray-500 mb-1">Next Rank</p>
-              <p className="text-sm font-bold text-violet-400">Institutional Mind</p>
-              <p className="text-xs text-gray-600">{(xpMax - xp).toLocaleString()} XP needed</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-gray-400">
-              <span>XP Progress</span>
-              <span>{Math.round((xp / xpMax) * 100)}%</span>
-            </div>
-            <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${(xp / xpMax) * 100}%` }}
-                transition={{ duration: 1.5, ease: "easeOut" }}
-                className="h-full rounded-full bg-gradient-to-r from-blue-500 via-violet-500 to-amber-500 relative"
-              >
-                <div className="absolute right-0 top-0 bottom-0 w-2 bg-white/30 rounded-full animate-pulse" />
-              </motion.div>
-            </div>
-            <div className="flex justify-between mt-3">
-              {RANKS.map((r, i) => (
-                <div key={i} className="text-center">
-                  <div className={`w-2.5 h-2.5 rounded-full mx-auto mb-1 ${r.name === rank ? 'ring-2 ring-offset-2 ring-offset-gray-900' : ''}`}
-                    style={{ backgroundColor: r.color, boxShadow: r.name === rank ? `0 0 8px ${r.color}` : 'none' }}
-                  />
-                  <p className="text-xs text-gray-600" style={{ color: r.name === rank ? r.color : '#4B5563', fontSize: 9 }}>{r.name.split(' ')[0]}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </GlassCard>
-
-        <div className="space-y-3">
-          <GlassCard className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Flame size={18} className="text-orange-400" />
-              <p className="text-sm font-bold text-white">Streak</p>
-            </div>
-            <p className="text-3xl font-black text-orange-400">{streak}</p>
-            <p className="text-xs text-gray-500">Current days</p>
-            <div className="mt-2 pt-2 border-t border-gray-800">
-              <p className="text-xs text-gray-500">Longest: <span className="text-white font-bold">{longestStreak} days</span></p>
-            </div>
-          </GlassCard>
-          <GlassCard className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Star size={18} className="text-yellow-400" />
-              <p className="text-sm font-bold text-white">Monthly</p>
-            </div>
-            <p className="text-3xl font-black text-emerald-400">+8.4%</p>
-            <p className="text-xs text-gray-500">Best month return</p>
-          </GlassCard>
-        </div>
-      </div>
-
-      {/* Heatmap */}
-      <GlassCard className="p-5">
-        <h3 className="text-sm font-bold text-white mb-4">Activity Heatmap — Last 52 Weeks</h3>
-        <div className="flex gap-1 overflow-x-auto pb-2">
-          {streakData.map((week, wi) => (
-            <div key={wi} className="flex flex-col gap-1">
-              {week.map((day, di) => (
-                <motion.div
-                  key={di}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: (wi * 7 + di) * 0.001 }}
-                  title={`${day} trades`}
-                  className="w-3 h-3 rounded-sm cursor-pointer hover:ring-1 hover:ring-blue-400 hover:ring-offset-1 hover:ring-offset-gray-900"
-                  style={{ backgroundColor: heatColors[day] || heatColors[0] }}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <span className="text-xs text-gray-600">Less</span>
-          {heatColors.map((c, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
-          <span className="text-xs text-gray-600">More</span>
-        </div>
-      </GlassCard>
-
-      {/* Monthly Performance */}
-      <div className="grid grid-cols-2 gap-4">
-        <GlassCard className="p-5">
-          <h3 className="text-sm font-bold text-white mb-4">Monthly Returns</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={monthlyPerf} barSize={24}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-              <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6B7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-              <Tooltip content={({ active, payload, label }) => active && payload?.length ? (
-                <div className="bg-gray-900 border border-gray-700 rounded-xl p-2.5 text-xs">
-                  <p className="text-gray-400">{label}</p>
-                  <p className={`font-bold ${payload[0].value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{payload[0].value}%</p>
-                </div>
-              ) : null} />
-              <ReferenceLine y={0} stroke="#374151" />
-              <Bar dataKey="return" radius={[4, 4, 0, 0]}
-                fill="#3B82F6"
-                label={false}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </GlassCard>
-
-        {/* Badges */}
-        <GlassCard className="p-5">
-          <h3 className="text-sm font-bold text-white mb-4">Achievement Badges</h3>
-          <div className="grid grid-cols-3 gap-3">
-            {badges.map((b, i) => (
-              <motion.button
-                key={i}
-                onClick={() => { if (b.unlocked) { setUnlockedBadge(b); setTimeout(() => setUnlockedBadge(null), 2000); } }}
-                whileHover={b.unlocked ? { scale: 1.08 } : {}}
-                className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
-                  b.unlocked
-                    ? 'bg-gray-800/60 border-gray-700/50 cursor-pointer hover:border-blue-500/40'
-                    : 'bg-gray-900/40 border-gray-800/30 opacity-40 cursor-not-allowed'
-                }`}
-              >
-                <span className="text-xl">{b.icon}</span>
-                <p className="text-xs font-semibold text-gray-300 text-center leading-tight">{b.name}</p>
-                {!b.unlocked && <div className="text-gray-600"><EyeOff size={10} /></div>}
-              </motion.button>
-            ))}
-          </div>
-        </GlassCard>
-      </div>
-
-      {/* Badge Unlock Animation */}
-      <AnimatePresence>
-        {unlockedBadge && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.7, y: 30 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: -20 }}
-            className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
-          >
-            <div className="bg-gray-900/95 backdrop-blur-xl border border-amber-500/40 rounded-2xl p-8 text-center shadow-[0_0_60px_rgba(245,158,11,0.3)]">
-              <motion.span
-                animate={{ rotate: [0, -10, 10, -5, 5, 0], scale: [1, 1.3, 1] }}
-                transition={{ duration: 0.5 }}
-                className="text-5xl block mb-3"
-              >{unlockedBadge.icon}</motion.span>
-              <p className="text-amber-400 font-black text-lg">{unlockedBadge.name}</p>
-              <p className="text-gray-400 text-sm mt-1">{unlockedBadge.desc}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-// ─── LOAD LIGHTWEIGHT CHARTS ──────────────────────────────────────────────────
-const LWCLoader = ({ children }) => {
-  const [loaded, setLoaded] = useState(!!window.LightweightCharts);
-  useEffect(() => {
-    if (window.LightweightCharts) { setLoaded(true); return; }
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js";
-    script.onload = () => setLoaded(true);
-    document.head.appendChild(script);
-  }, []);
-  return loaded ? children : (
-    <div className="flex items-center justify-center h-64">
-      <div className="flex items-center gap-3 text-gray-400">
-        <RefreshCw size={16} className="animate-spin" />
-        <span className="text-sm">Loading chart engine...</span>
-      </div>
-    </div>
-  );
-};
-
-// ─── ROOT APP ─────────────────────────────────────────────────────────────────
-export default function App() {
-  const { activeModule } = useStore();
-
-  const modules = {
-    dashboard: <DashboardModule />,
-    indicators: <IndicatorsModule />,
-    "ai-decision": <AIDecisionModule />,
-    simulation: <LWCLoader><SimulationModule /></LWCLoader>,
-    gamification: <GamificationModule />,
+  const submitQuiz = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post("/education/quiz/submit", { quiz_id:`session_${Date.now()}`, questions:QUIZ_Q, user_answers:Object.entries(answers).map(([question_id,selected_key])=>({question_id,selected_key})) });
+      setResult(res); setSubmitted(true); toast("Quiz submitted!", "success");
+    } catch {
+      const correct = QUIZ_Q.filter(q => answers[q.id] === q.ans).length;
+      const score = (correct / QUIZ_Q.length) * 100;
+      setResult({
+        score_percentage: score, correct_count: correct, incorrect_count: QUIZ_Q.length - correct,
+        mastery_level: score>=80?"ADVANCED":score>=60?"INTERMEDIATE":"BEGINNER",
+        points_earned: correct * 10,
+        motivational_feedback: score>=80?"Exceptional performance. Advanced-level understanding demonstrated." : "Good start. Review weak topics to strengthen your foundation.",
+        topic_performance:[
+          { topic:"RSI", accuracy_percent:answers["q1"]==="C"?100:0, performance_band:answers["q1"]==="C"?"STRONG":"WEAK" },
+          { topic:"VOLATILITY", accuracy_percent:answers["q2"]==="B"?100:0, performance_band:answers["q2"]==="B"?"STRONG":"WEAK" },
+          { topic:"RISK", accuracy_percent:answers["q3"]==="B"?100:0, performance_band:answers["q3"]==="B"?"STRONG":"WEAK" },
+        ],
+      });
+      setSubmitted(true); toast("Demo scoring applied", "info");
+    }
+    setLoading(false);
   };
 
+  const reset = () => { setAnswers({}); setSubmitted(false); setResult(null); setCur(0); };
+
+  if (result) return (
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Quiz Results</div>
+        <div className="page-sub">Your performance breakdown and knowledge review</div>
+      </div>
+      <div className="g2">
+        <div className="card glow-b" style={{ textAlign:"center" }}>
+          <div style={{ padding:"8px 0 20px" }}>
+            <div className="score-circle">
+              <div className="score-inner">
+                <div className="score-num">{result.score_percentage?.toFixed(0)}</div>
+                <div className="score-denom">/ 100</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:7, justifyContent:"center", flexWrap:"wrap", marginTop:4 }}>
+              <SignalBadge signal={result.mastery_level} />
+              <span className="badge badge-cyan">+{result.points_earned} XP</span>
+            </div>
+          </div>
+          <div className="div" />
+          <div style={{ display:"flex", justifyContent:"space-around", padding:"8px 0 4px" }}>
+            <div>
+              <div style={{ fontSize:26, fontWeight:800, color:"#34D399", fontFamily:"var(--font-display)" }}>{result.correct_count}</div>
+              <div style={{ fontSize:11, color:"var(--muted)" }}>Correct</div>
+            </div>
+            <div style={{ width:1, background:"var(--border)" }} />
+            <div>
+              <div style={{ fontSize:26, fontWeight:800, color:"#F87171", fontFamily:"var(--font-display)" }}>{result.incorrect_count}</div>
+              <div style={{ fontSize:11, color:"var(--muted)" }}>Incorrect</div>
+            </div>
+          </div>
+          <div className="div" />
+          <p style={{ fontSize:12.5, color:"#94A3B8", lineHeight:1.7, fontStyle:"italic" }}>{result.motivational_feedback}</p>
+          <button className="btn btn-ghost btn-full" style={{ marginTop:16 }} onClick={reset}>Retake Quiz</button>
+        </div>
+        <div className="card">
+          <div className="card-hd" style={{ marginBottom:14 }}>
+            <div className="card-hd-icon" style={{ background:"rgba(16,185,129,0.15)" }}><Icon name="trending" size={14} color="#34D399" /></div>
+            Topic Breakdown
+          </div>
+          {result.topic_performance?.map(tp => (
+            <div key={tp.topic} style={{ marginBottom:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                <span style={{ fontSize:12.5, fontWeight:600 }}>{tp.topic}</span>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <span style={{ fontSize:12, color:"var(--muted)" }}>{tp.accuracy_percent?.toFixed(0)}%</span>
+                  <span className={`badge badge-sm ${tp.performance_band==="STRONG"?"badge-green":tp.performance_band==="DEVELOPING"?"badge-yellow":"badge-red"}`}>{tp.performance_band}</span>
+                </div>
+              </div>
+              <ProgBar val={tp.accuracy_percent} cls={tp.performance_band==="STRONG"?"prog-g":tp.performance_band==="DEVELOPING"?"prog-y":"prog-p"} />
+            </div>
+          ))}
+          <div className="div" />
+          <div className="card-hd" style={{ marginBottom:10, fontSize:12 }}>Answer Review</div>
+          {QUIZ_Q.map((q, i) => {
+            const ua = answers[q.id];
+            const ok = ua === q.ans;
+            return (
+              <div key={q.id} className={`ans-card ${ok?"ans-ok":"ans-bad"}`}>
+                <div style={{ fontSize:11.5, fontWeight:700, color:ok?"#34D399":"#F87171", marginBottom:4 }}>
+                  {ok?"✓":"✗"} Q{i+1}: {q.topic}
+                </div>
+                <div style={{ fontSize:11.5, color:"#94A3B8", lineHeight:1.5 }}>
+                  Your answer: <strong>{q.opts[KEYS.indexOf(ua)] || "Unanswered"}</strong>
+                  {!ok && <> · Correct: <strong style={{ color:"#34D399" }}>{q.opts[KEYS.indexOf(q.ans)]}</strong></>}
+                </div>
+                {!ok && <div style={{ fontSize:11, color:"#64748B", marginTop:4 }}>{q.exp}</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-[#0B1220] text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* Background texture */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-600/5 rounded-full blur-3xl" />
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Quiz Engine</div>
+        <div className="page-sub">Test your financial knowledge with adaptive assessments</div>
+      </div>
+      <div className="g2">
+        {/* Question */}
+        <div className="card glow-b">
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <span className="card-hd" style={{ margin:0 }}>Question {cur + 1} / {QUIZ_Q.length}</span>
+            <span className={`badge ${q.diff==="EASY"?"badge-green":q.diff==="MEDIUM"?"badge-yellow":"badge-red"}`}>{q.diff}</span>
+          </div>
+          {/* Progress */}
+          <div style={{ height:3, background:"rgba(255,255,255,0.06)", borderRadius:99, marginBottom:20 }}>
+            <div style={{ height:"100%", width:`${((cur+1)/QUIZ_Q.length)*100}%`, background:"linear-gradient(90deg,#3B82F6,#8B5CF6)", borderRadius:99, transition:"width 0.4s ease" }} />
+          </div>
+          <p style={{ fontSize:14.5, fontWeight:600, lineHeight:1.65, color:"#E2E8F0", marginBottom:20 }}>{q.text}</p>
+          {q.opts.map((opt, i) => {
+            const key = KEYS[i];
+            const sel = answers[q.id] === key;
+            return (
+              <div key={key} className={`quiz-opt ${sel?"sel":""}`} onClick={() => select(key)}>
+                <span className="opt-key">{key}</span>
+                <span>{opt}</span>
+              </div>
+            );
+          })}
+          <div className="btn-group" style={{ marginTop:18 }}>
+            <button className="btn btn-ghost" style={{ flex:1 }} onClick={() => setCur(p => Math.max(0, p-1))} disabled={cur===0}>← Prev</button>
+            {cur < QUIZ_Q.length - 1
+              ? <button className="btn btn-primary" style={{ flex:1 }} onClick={() => setCur(p => p+1)}>Next →</button>
+              : <button className="btn btn-primary" style={{ flex:1 }} onClick={submitQuiz} disabled={loading || Object.keys(answers).length < QUIZ_Q.length}>
+                  {loading ? <Spinner /> : "Submit"}
+                </button>
+            }
+          </div>
+          {Object.keys(answers).length < QUIZ_Q.length && cur === QUIZ_Q.length-1 && (
+            <p style={{ marginTop:8, fontSize:11, color:"#F87171", textAlign:"center" }}>Answer all {QUIZ_Q.length} questions first</p>
+          )}
+        </div>
+
+        {/* Navigator */}
+        <div className="card">
+          <div className="card-hd" style={{ marginBottom:14 }}>
+            <div className="card-hd-icon" style={{ background:"rgba(245,158,11,0.15)" }}><Icon name="quiz" size={14} color="#FCD34D" /></div>
+            Question Navigator
+          </div>
+          <div className="q-nav" style={{ marginBottom:16 }}>
+            {QUIZ_Q.map((_, i) => (
+              <div key={i} className="q-dot" onClick={() => setCur(i)}
+                style={{
+                  background: answers[QUIZ_Q[i].id] ? "rgba(59,130,246,0.25)" : i===cur ? "rgba(139,92,246,0.25)" : "rgba(255,255,255,0.05)",
+                  border: i===cur ? "1px solid rgba(139,92,246,0.5)" : answers[QUIZ_Q[i].id] ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent",
+                  color: answers[QUIZ_Q[i].id] ? "#60A5FA" : i===cur ? "#A78BFA" : "var(--muted)",
+                }}>
+                {i+1}
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, fontSize:12, color:"var(--muted)" }}>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}><div style={{ width:10, height:10, borderRadius:3, background:"rgba(59,130,246,0.25)", border:"1px solid rgba(59,130,246,0.3)" }} />Answered</div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}><div style={{ width:10, height:10, borderRadius:3, background:"rgba(139,92,246,0.25)", border:"1px solid rgba(139,92,246,0.5)" }} />Current</div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}><div style={{ width:10, height:10, borderRadius:3, background:"rgba(255,255,255,0.05)" }} />Unanswered</div>
+          </div>
+          <div className="div" />
+          <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:12.5, color:"var(--muted)", lineHeight:1.7 }}>
+            <div><strong style={{ color:"#CBD5E1" }}>Scoring: </strong>10 XP per correct answer</div>
+            <div><strong style={{ color:"#CBD5E1" }}>Topics: </strong>RSI · Volatility · Risk Management</div>
+            <div><strong style={{ color:"#CBD5E1" }}>Answered: </strong>{Object.keys(answers).length} / {QUIZ_Q.length}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── PAGE: PROGRESS ───────────────────────────────────────────────────────────
+const ProgressPage = () => {
+  const [progressForm, setProgressForm] = useState({ user_id:"user_42", quizzes_completed:18, quiz_scores:[86,92,78,95,88,91,84,93], predictions_made:35, correct_predictions:26, calibration_scores:[0.82,0.91,0.77,0.88,0.85], current_streak:12, max_streak_achieved:34, total_points:0, existing_badge_ids:[] });
+  const [snapshot, setSnapshot] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadDemo = () => setSnapshot({
+    user_id:"user_42", total_points:845, level:"Strategist",
+    current_streak:12, max_streak_achieved:34,
+    quiz_average:86.67, prediction_accuracy:74.29,
+    avg_calibration:0.828, engagement_score:0.709,
+    learning_consistency:"HIGH", skill_maturity:"EXPERT",
+    points_to_next_level:155,
+    badges:[{ badge_id:"streak_silver", name:"Silver Streak", tier:"SILVER", description:"30+ consecutive days" }],
+    summary_narrative:"Level: Strategist · Maturity: EXPERT · Consistency: HIGH",
+  });
+
+  useEffect(() => { loadDemo(); }, []);
+
+  const compute = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post("/education/progress/snapshot", progressForm);
+      setSnapshot(res); toast("Snapshot computed", "success");
+    } catch { loadDemo(); toast("Demo data loaded", "info"); }
+    setLoading(false);
+  };
+
+  const tierIcon = { GOLD:"🥇", SILVER:"🥈", BRONZE:"🥉" };
+  const maturityColor = { EXPERT:"#3B82F6", PROFICIENT:"#8B5CF6", COMPETENT:"#10B981", DEVELOPING:"#F59E0B" };
+  const lockedBadges = [{ name:"Gold Streak", icon:"🥇" },{ name:"Scholar", icon:"📚" },{ name:"Precision Trader", icon:"🎯" }];
+
+  const metrics = snapshot ? [
+    { label:"Quiz Average", val:snapshot.quiz_average, cls:"prog-b" },
+    { label:"Prediction Accuracy", val:snapshot.prediction_accuracy, cls:"prog-g" },
+    { label:"Avg Calibration", val:(snapshot.avg_calibration*100), cls:"prog-p" },
+    { label:"Engagement Score", val:(snapshot.engagement_score*100), cls:"prog-y" },
+  ] : [];
+
+  return (
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Streak & Progress</div>
+        <div className="page-sub">Gamified learning journey with XP, badges, and skill maturity</div>
       </div>
 
-      <TopNavbar />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto min-h-[calc(100vh-56px)] relative">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeModule}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-            >
-              {modules[activeModule]}
-            </motion.div>
-          </AnimatePresence>
+      {snapshot && (
+        <>
+          {/* Hero stats */}
+          <div className="g3" style={{ marginBottom:16 }}>
+            {[
+              { label:"Current Streak", val:snapshot.current_streak, suffix:"🔥 days", grad:"linear-gradient(90deg,#F59E0B,#EF4444)" },
+              { label:"Total XP", val:snapshot.total_points, suffix:snapshot.level, grad:"linear-gradient(90deg,#3B82F6,#8B5CF6)" },
+            ].map((s, i) => (
+              <div key={i} className="card" style={{ textAlign:"center", padding:"22px 16px" }}>
+                <div className="metric-lbl" style={{ marginBottom:8 }}>{s.label}</div>
+                <div className="stat-big" style={{ background:s.grad, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>{s.val}</div>
+                <div className="stat-lbl">{s.suffix}</div>
+              </div>
+            ))}
+            <div className="card" style={{ textAlign:"center", padding:"22px 16px" }}>
+              <div className="metric-lbl" style={{ marginBottom:8 }}>Skill Maturity</div>
+              <div style={{ fontSize:24, fontFamily:"var(--font-display)", fontWeight:800, color:maturityColor[snapshot.skill_maturity]||"#60A5FA", marginBottom:6 }}>{snapshot.skill_maturity}</div>
+              <span className="badge badge-green">{snapshot.learning_consistency}</span>
+            </div>
+          </div>
+
+          {/* XP Progress */}
+          <div className="card" style={{ marginBottom:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div className="card-hd" style={{ margin:0 }}>
+                <div className="card-hd-icon" style={{ background:"rgba(59,130,246,0.15)" }}><Icon name="award" size={14} color="#60A5FA" /></div>
+                Level Progress — {snapshot.level}
+              </div>
+              <span style={{ fontSize:12, color:"var(--muted)" }}>{snapshot.points_to_next_level} XP to next tier</span>
+            </div>
+            <div className="xp-track">
+              <div className="xp-fill" style={{ width:`${Math.min(((snapshot.total_points%400)/400)*100,100)}%` }} />
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:11, color:"var(--muted)" }}>
+              <span>{snapshot.total_points} XP</span>
+              <span>{snapshot.total_points + snapshot.points_to_next_level} XP</span>
+            </div>
+          </div>
+
+          {/* Metrics + Badges */}
+          <div className="g2" style={{ marginBottom:16 }}>
+            <div className="card">
+              <div className="card-hd" style={{ marginBottom:14 }}>
+                <div className="card-hd-icon" style={{ background:"rgba(16,185,129,0.15)" }}><Icon name="trending" size={14} color="#34D399" /></div>
+                Performance Metrics
+              </div>
+              {metrics.map(m => (
+                <div key={m.label} style={{ marginBottom:14 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                    <span style={{ fontSize:12.5, color:"var(--text2)", fontWeight:500 }}>{m.label}</span>
+                    <span style={{ fontSize:13, fontFamily:"var(--font-display)", fontWeight:700, color:"#E2E8F0" }}>{m.val.toFixed(1)}%</span>
+                  </div>
+                  <ProgBar val={m.val} cls={m.cls} size="prog-md" />
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <div className="card-hd" style={{ marginBottom:14 }}>
+                <div className="card-hd-icon" style={{ background:"rgba(245,158,11,0.15)" }}><Icon name="award" size={14} color="#FCD34D" /></div>
+                Earned Badges
+              </div>
+              {snapshot.badges?.length > 0 ? (
+                <div className="badge-grid">
+                  {snapshot.badges.map(b => (
+                    <div key={b.badge_id} className="badge-pill" title={b.description}>
+                      <span>{tierIcon[b.tier]||"🏅"}</span>
+                      <span style={{ fontSize:11.5 }}>{b.name}</span>
+                    </div>
+                  ))}
+                  {lockedBadges.filter(b => !snapshot.badges.find(e => e.name===b.name)).map(b => (
+                    <div key={b.name} className="badge-pill" style={{ opacity:0.3, filter:"grayscale(1)" }}>
+                      <span>{b.icon}</span><span style={{ fontSize:11.5 }}>{b.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ color:"var(--muted)", fontSize:13 }}>No badges yet</div>}
+              <div className="div" />
+              <div className="card-hd" style={{ marginBottom:10, fontSize:12 }}>Streak Stats</div>
+              <div className="result-panel">
+                <RRow label="Current Streak" value={`${snapshot.current_streak} days 🔥`} />
+                <RRow label="Personal Best" value={`${snapshot.max_streak_achieved} days ⭐`} />
+              </div>
+            </div>
+          </div>
+
+          {/* Recompute */}
+          <div className="card">
+            <div className="card-hd" style={{ marginBottom:14 }}>
+              <div className="card-hd-icon" style={{ background:"rgba(59,130,246,0.15)" }}><Icon name="zap" size={14} color="#60A5FA" /></div>
+              Recompute Snapshot
+            </div>
+            <div className="inline-g" style={{ marginBottom:14 }}>
+              <Fld label="User ID">
+                <input className="input" value={progressForm.user_id} onChange={e => setProgressForm(p => ({...p, user_id:e.target.value}))} />
+              </Fld>
+              <Fld label="Current Streak">
+                <input className="input" type="number" value={progressForm.current_streak} onChange={e => setProgressForm(p => ({...p, current_streak:parseInt(e.target.value)}))} />
+              </Fld>
+            </div>
+            <button className="btn btn-primary" onClick={compute} disabled={loading}>
+              {loading ? <><Spinner /> Computing…</> : <><Icon name="zap" size={14} color="#fff" /> Recompute</>}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── NAVIGATION ───────────────────────────────────────────────────────────────
+const NAV = [
+  { id:"indicator",   label:"Indicator Explainer", icon:"chart" },
+  { id:"ai-decision", label:"AI Decision",          icon:"brain" },
+  { id:"playground",  label:"Playground",           icon:"target" },
+  { id:"strategy",    label:"Strategy Sim",         icon:"trending" },
+  { id:"quiz",        label:"Quiz Engine",          icon:"quiz" },
+  { id:"progress",    label:"Streak & Progress",    icon:"flame" },
+];
+const PAGE_MAP = { indicator:IndicatorPage, "ai-decision":AIDecisionPage, playground:PlaygroundPage, strategy:StrategyPage, quiz:QuizPage, progress:ProgressPage };
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [active, setActive] = useState("indicator");
+  const [collapsed, setCollapsed] = useState(false);
+  const Page = PAGE_MAP[active] || IndicatorPage;
+  const cur = NAV.find(n => n.id === active);
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className={`app${collapsed?" sidebar-collapsed":""}`}>
+
+        {/* SIDEBAR */}
+        <aside className="sidebar">
+          <div className="sidebar-logo">
+            <div className="logo-mark">AI</div>
+            <span className="logo-text">EduFin Platform</span>
+          </div>
+
+          <nav className="nav-section">
+            <div className="nav-group-label">Modules</div>
+            {NAV.map(n => (
+              <div key={n.id}
+                className={`nav-item ${active === n.id ? "active" : ""}`}
+                onClick={() => setActive(n.id)}
+                title={collapsed ? n.label : undefined}
+              >
+                <Icon name={n.icon} size={17} color={active===n.id?"#60A5FA":"#5A6A88"} />
+                <span className="nav-label-text">{n.label}</span>
+              </div>
+            ))}
+          </nav>
+
+          <div className="sidebar-footer">
+            <div className="nav-item" onClick={() => setCollapsed(p => !p)} title="Toggle sidebar">
+              <Icon name={collapsed ? "chevron" : "collapse"} size={17} color="#5A6A88" />
+              <span className="nav-label-text">{collapsed ? "Expand" : "Collapse"}</span>
+            </div>
+          </div>
+        </aside>
+
+        {/* TOPBAR */}
+        <header className="topbar">
+          <div className="topbar-breadcrumb">
+            <span>EduFin</span>
+            <span className="crumb-sep">/</span>
+            <span className="crumb-module">{cur?.label}</span>
+          </div>
+          <div className="topbar-right">
+            <div className="status-pill">
+              <div className="status-dot" />
+              <span>Live</span>
+            </div>
+            <span className="badge badge-purple" style={{ fontSize:10.5 }}>Intelligence v1.0</span>
+          </div>
+        </header>
+
+        {/* CONTENT */}
+        <main className="content" key={active}>
+          <Page />
         </main>
       </div>
-
-      <AIChatbot />
-      <ToastSystem />
-
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 999px; }
-        ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
-      `}</style>
-    </div>
+      <Toast />
+    </>
   );
 }
