@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =============================================================================
 -- TABLE: users
--- Mirrors Supabase Auth users; stores app-level profile data.
+-- Mirrors Supabase Auth users; stores app-level profile data.S
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS public.users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
