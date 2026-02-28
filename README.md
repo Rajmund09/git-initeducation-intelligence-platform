@@ -1,133 +1,135 @@
-🚀 EduFin Intelligence Platform
+# 🚀 EduFin Intelligence Platform
 
 AI-Powered Financial Education & Behavioral Trading Simulation
 
-EduFin Intelligence is a production-grade fintech learning platform designed to train traders in discipline, risk management, and behavioral decision-making through AI-assisted trading simulations.
+EduFin Intelligence is a fintech learning platform designed to train traders in discipline, risk management, and behavioral decision-making through AI-assisted trading simulations.
 
-This is not a signal-selling app.
-It is a behavioral intelligence training system.
+> This is NOT a signal-selling app.  
+> It is a behavioral intelligence training system.
 
-🧠 What It Does
+---
 
-EduFin helps users:
+## 🧠 What This Platform Does
 
-Understand market signals
+- Explains technical indicators with AI interpretation  
+- Compares AI decision vs user decision  
+- Detects trading biases (Overconfidence, FOMO, Loss Aversion)  
+- Simulates real trading with live P&L tracking  
+- Tracks streaks and engagement using gamification  
 
-Compare AI vs user decisions
+---
 
-Detect behavioral trading biases
+## ⚙️ Tech Stack
 
-Practice on realistic trading simulations
+### Frontend
+- React (Vite)
+- Canvas API (Custom Candlestick Engine)
+- Zustand (State Management)
+- TailwindCSS / Custom CSS System
+- REST API Integration
 
-Track discipline using gamified metrics
+### Backend
+- FastAPI
+- Supabase (Database)
+- REST Architecture
 
-⚙️ Tech Stack
+---
 
-Frontend
+## 📊 Core Modules
 
-React (Vite)
+### 1️⃣ Indicator Explainer
+- Signal detection
+- Trading bias suggestion
+- Confidence level
+- Risk notes
+- Institutional-style interpretation
 
-Zustand (State Management)
+### 2️⃣ AI Decision Engine
+- Ensemble model simulation
+- Weighted model contribution breakdown
+- Confidence agreement level
+- Risk adjustment explanation
 
-Recharts (Analytics)
+### 3️⃣ Trading Playground
+- Real-time candlestick chart
+- Buy / Sell execution
+- Running P&L
+- Confidence-based trading
+- Behavioral bias alerts
 
-Lightweight Charts (Candlestick Engine)
+### 4️⃣ Strategy Simulator
+- Risk-adjusted projections
+- Volatility drag calculation
+- Worst-case modeling
 
-Framer Motion (Animations)
+### 5️⃣ Quiz Engine
+- Financial knowledge assessment
+- XP-based scoring
+- Topic performance breakdown
 
-TailwindCSS (Design System)
+### 6️⃣ Streak & Progress System
+- GitHub-style activity heatmap
+- XP level system
+- Badge unlocking
+- Learning consistency tracking
 
-Backend
+---
 
-FastAPI
-
-Supabase (Database)
-
-REST API architecture
-
-📊 Core Modules
-1️⃣ Indicator Research Dashboard
-
-AI Signal
-
-Trading Bias
-
-Confidence Score
-
-Risk Notes
-
-Institutional-style interpretation
-
-2️⃣ AI Decision Engine
-
-AI vs User signal comparison
-
-Confidence gap analysis
-
-Behavioral score detection
-
-Bias tracking (Overconfidence, FOMO, Herding, Loss Aversion)
-
-3️⃣ Trading Simulation Engine
-
-Real candlestick chart
-
-Buy/Sell execution
-
-Live P&L tracking
-
-Position management
-
-Confidence-based trading input
-
-Bias detection logic
-
-4️⃣ Gamification Dashboard
-
-XP & Rank System
-
-GitHub-style streak heatmap
-
-Monthly performance graph
-
-Achievement badges
-
-🎯 Core Philosophy
+## 🎯 Platform Philosophy
 
 EduFin focuses on:
 
-Decision Intelligence > Prediction Accuracy
+Decision Quality > Prediction Accuracy
 
-It trains discipline, process quality, and behavioral maturity — not gambling behavior.
+The goal is to train disciplined traders, not gamblers.
 
-🛠 Installation
+---
+
+## 🛠 Installation
+
+Clone the repository:
+
+```bash
 git clone https://github.com/your-username/edufin-intelligence.git
-cd frontend
+cd edufin-intelligence
 npm install
 npm run dev
+```
 
 Build for production:
 
+```bash
 npm run build
-🔐 Environment Variables
+```
 
-Create .env in frontend:
+---
 
+## 🔐 Environment Variables
+
+Create a `.env` file:
+
+```
 VITE_API_URL=https://your-backend-url.com
-🚀 Deployment
+```
 
-Frontend → Vercel
+---
 
-Backend → Render
+## 🚀 Deployment
 
-Database → Supabase
+Frontend → Vercel  
+Backend → Render  
+Database → Supabase  
 
-⚠ Disclaimer
+---
 
-This platform is for educational and simulation purposes only.
+## ⚠ Disclaimer
+
+This platform is for educational and simulation purposes only.  
 It does not provide financial advice or real trading signals.
 
-👨‍💻 Author
+---
 
-Raj Mund
-BCA | AI/ML Enthusiast | Fintech Builder
+## 👨‍💻 Author
+
+Raj Mund  
+BCA | AI/ML Enthusiast | Fintech Builder  
