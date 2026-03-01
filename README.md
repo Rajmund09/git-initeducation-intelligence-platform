@@ -90,7 +90,7 @@ The goal is to train disciplined traders, not gamblers.
 Clone the repository:
 
 ```bash
-git clone https://github.com/your-username/edufin-intelligence.git
+git clone https://github.com/Rajmund09/edufin-intelligence.git
 cd edufin-intelligence
 npm install
 npm run dev
